@@ -249,10 +249,7 @@ impl<'a> Display for ConnectionDisplay<'a> {
     }
 }
 
-fn display_with_walk_time<'a>(
-    connection: &'a Connection,
-    walk_time: Duration,
-) -> impl Display + 'a {
+fn display_with_walk_time(connection: &'_ Connection, walk_time: Duration) -> impl Display + '_ {
     ConnectionDisplay::new(connection, walk_time)
 }
 
