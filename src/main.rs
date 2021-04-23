@@ -255,7 +255,7 @@ fn display_with_walk_time(connection: &'_ Connection, walk_time: Duration) -> im
 
 fn load_config() -> Result<Config> {
     let config_path = dirs::config_dir()
-        .with_context(|| format!("Missing HOME directory"))?
+        .with_context(|| "Missing HOME directory".to_string())?
         .join("de.swsnr.home")
         .join("home.toml");
     let mut source = File::open(&config_path).with_context(|| {
