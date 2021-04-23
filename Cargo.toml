@@ -7,8 +7,9 @@ edition = "2018"
 publish = false
 
 [dependencies]
-ureq = { version = "^2.0", features = ["tls", "native-certs"] }
 toml = "^0.5"
 serde = { version = "^1.0", features = ["derive"] }
 dirs = "^3.0"
 anyhow = "^1.0"
+reqwest = { version = "^0.11", features = ["blocking", "json"] }
+url = "^2.2"
