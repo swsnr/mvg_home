@@ -283,7 +283,12 @@ fn load_config() -> Result<Config> {
     })
 }
 
-fn doit() -> Result<()> {
+#[derive(Debug, Clone)]
+struct Args {
+    number_of_connections: u16,
+}
+
+fn process_args(args: Args) -> Result<()> {
     let config = load_config()?;
 
     let mvg = Mvg::new()?;
@@ -291,15 +296,13 @@ fn doit() -> Result<()> {
     let start = Utc::now().add(plan.walk_to_start);
     let connections = mvg.get_connections(plan.start.0, plan.destination.0, start.into())?;
 
-    for connection in connections {
+    for connection in connections.iter().take(args.number_of_connections as usize) {
         println!(
             "{}",
             display_with_walk_time(&connection, plan.walk_to_start)
         );
     }
 
-    // TODO: Print a given number of routes including the first transit station
-    // TODO: Add argument for number of routes
     // TODO: Cache routes and print routes from cache
     // TODO: Evict cache if the first cached route is in the past
     // TODO: Add command line flag to clear cache forcibly
@@ -308,7 +311,27 @@ fn doit() -> Result<()> {
 }
 
 fn main() {
-    if let Err(err) = doit() {
+    use clap::*;
+    let matches = app_from_crate!()
+        .setting(AppSettings::UnifiedHelpMessage)
+        .setting(AppSettings::DontCollapseArgsInUsage)
+        .setting(AppSettings::DeriveDisplayOrder)
+        .set_term_width(80)
+        .arg(
+            Arg::with_name("number_of_connections")
+                .short("n")
+                .long("connections")
+                .takes_value(true)
+                .value_name("N")
+                .default_value("10")
+                .help("The number of connections to show"),
+        )
+        .get_matches();
+    let args = Args {
+        number_of_connections: value_t!(matches, "number_of_connections", u16)
+            .unwrap_or_else(|e| e.exit()),
+    };
+    if let Err(err) = process_args(args) {
         eprintln!("{:#}", err);
         std::process::exit(1);
     }
