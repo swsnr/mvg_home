@@ -8,17 +8,16 @@
 
 //! Get homewards commuting rules
 
+use std::fmt::{Display, Formatter};
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Write};
+use std::path::PathBuf;
 
 use anyhow::{anyhow, Context, Result};
+use chrono::{DateTime, Duration, TimeZone, Utc};
+use log::{debug, warn};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
-
-use chrono::{DateTime, Duration, TimeZone, Utc};
-use std::fmt::{Display, Formatter};
-use std::ops::Add;
-use std::path::PathBuf;
 use url::Url;
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
@@ -62,10 +61,16 @@ impl From<DateTime<Utc>> for Timestamp {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct Station {
+    id: String,
+    name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 enum Location {
     #[serde(rename = "station")]
-    Station { id: String, name: String },
+    Station(Station),
     #[serde(other)]
     Other,
 }
@@ -132,6 +137,24 @@ impl Mvg {
             .with_context(|| format!("Failed to parse response from {}", url))
     }
 
+    fn find_unambiguous_station_by_name<S: AsRef<str>>(&self, name: S) -> Result<Station> {
+        let mut stations: Vec<Station> = self
+            .get_location_by_name(name.as_ref())?
+            .into_iter()
+            .filter_map(|loc| match loc {
+                Location::Station(station) => Some(station),
+                _ => None,
+            })
+            .collect();
+        if 1 < stations.len() {
+            Err(anyhow!("Ambiguous results for {}", name.as_ref()))
+        } else {
+            stations
+                .pop()
+                .with_context(|| format!("No matches for {}", name.as_ref()))
+        }
+    }
+
     fn get_connections<S: AsRef<str>, T: AsRef<str>>(
         &self,
         from_station_id: S,
@@ -159,30 +182,6 @@ impl Mvg {
     }
 }
 
-/// A station ID.
-#[derive(Debug, Clone)]
-struct StationId(String);
-
-impl StationId {
-    fn resolve_name_unambiguously<S: AsRef<str>>(mvg: &Mvg, name: S) -> Result<Self> {
-        let locations = mvg.get_location_by_name(name.as_ref())?;
-        let mut stations: Vec<StationId> = locations
-            .into_iter()
-            .filter_map(|loc| match loc {
-                Location::Station { id, .. } => Some(StationId(id)),
-                _ => None,
-            })
-            .collect();
-        if 1 < stations.len() {
-            Err(anyhow!("Ambiguous results for {}", name.as_ref()))
-        } else {
-            stations
-                .pop()
-                .with_context(|| format!("No matches for {}", name.as_ref()))
-        }
-    }
-}
-
 /// The configuration file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Config {
@@ -197,7 +196,7 @@ struct Config {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ConnectionsCache {
     config: Config,
-    last_routes: Vec<Connection>,
+    connections: Vec<Connection>,
 }
 
 impl ConnectionsCache {
@@ -208,36 +207,40 @@ impl ConnectionsCache {
             .join("connections")
     }
 
-    fn load() -> Option<Self> {
-        File::open(Self::cache_path())
-            .ok()
-            .and_then(|mut source| {
-                let mut buf = Vec::new();
-                source.read_to_end(&mut buf).map(|_| buf).ok()
-            })
-            .and_then(|buf| flexbuffers::from_slice(&buf).ok())
+    fn load() -> Result<Self> {
+        let path = Self::cache_path();
+        let mut source = File::open(&path)
+            .with_context(|| format!("Failed to open cache file {} for reading", path.display()))?;
+
+        let mut buf = Vec::new();
+        source
+            .read_to_end(&mut buf)
+            .with_context(|| format!("Failed to read cache from {}", path.display()))?;
+        flexbuffers::from_slice(&buf)
+            .with_context(|| format!("Failed to deserialize cache from {}", path.display()))
     }
-}
 
-#[derive(Debug)]
-struct ConnectionPlan {
-    /// The ID of the start station.
-    start: StationId,
-    /// The ID of the destination station.
-    destination: StationId,
-    /// The time to walk to the start station.
-    walk_to_start: Duration,
-}
-
-impl ConnectionPlan {
-    fn resolve_from_config(mvg: &Mvg, config: &Config) -> Result<Self> {
-        Ok(Self {
-            start: StationId::resolve_name_unambiguously(mvg, &config.start)
-                .with_context(|| format!("Failed to resolve station {}", &config.start))?,
-            destination: StationId::resolve_name_unambiguously(mvg, &config.destination)
-                .with_context(|| format!("Failed to resolve station {}", &config.destination))?,
-            walk_to_start: Duration::minutes(config.walk_to_start_in_minutes as i64),
-        })
+    fn save(&self) -> Result<()> {
+        let path = Self::cache_path();
+        let cache_dir = path.parent().with_context(|| {
+            format!(
+                "Failed to determine directory of cache path {}",
+                path.display()
+            )
+        })?;
+        std::fs::create_dir_all(cache_dir).with_context(|| {
+            format!(
+                "Failed to create cache directory at {}",
+                cache_dir.display()
+            )
+        })?;
+        let mut sink = File::create(&path)
+            .with_context(|| format!("Failed to open cache file {} for writing", path.display()))?;
+        let buffer = flexbuffers::to_vec(self)
+            .with_context(|| "Failed to serialize connection cache".to_string())?;
+        sink.write_all(&buffer)
+            .with_context(|| format!("Failed to write cache to {}", path.display()))?;
+        Ok(())
     }
 }
 
@@ -270,8 +273,8 @@ impl<'a> Display for ConnectionDisplay<'a> {
             arrival.naive_local().format("%H:%M")
         )?;
         if 2 <= self.connection.connection_parts.len() {
-            if let Location::Station { name, .. } = &self.connection.connection_parts[0].to {
-                write!(f, ", via {}", name)
+            if let Location::Station(station) = &self.connection.connection_parts[0].to {
+                write!(f, ", via {}", station.name)
             } else {
                 Ok(())
             }
@@ -320,23 +323,65 @@ struct Args {
 fn process_args(args: Args) -> Result<()> {
     let config = load_config()?;
 
-    let now = Utc::now();
+    let walk_time_to_start = Duration::minutes(config.walk_to_start_in_minutes as i64);
+    let desired_departure_time = Utc::now() + walk_time_to_start;
 
-    ConnectionsCache::load()
+    // start:
+    // destination: StationId::resolve_name_unambiguously(mvg, &config.destination)
+    // .with_context(|| format!("Failed to resolve station {}", &config.destination))?,
+    // walk_to_start: ,
+    let cache = ConnectionsCache::load()
+        .map_err(|err| {
+            debug!("Failed to read cached connections: {:#}", err);
+            err
+        })
+        .ok()
         // Discard cache if config doesn't match
         .filter(|cache| cache.config == config)
-        .filter(|cache| !cache.last_routes.is_empty())
-        .filter(|cache| )
-
-    let mvg = Mvg::new()?;
-    let plan = ConnectionPlan::resolve_from_config(&mvg, &config)?;
-    let start = Utc::now().add(plan.walk_to_start);
-    let connections = mvg.get_connections(plan.start.0, plan.destination.0, start.into())?;
+        .map(|cache| {
+            debug!("Cached passed config check");
+            cache
+        })
+        // Discard cache if it's empty or if the first connection departs before the desired departure time,
+        // that is if the connection cache's outdated.
+        .filter(|cache| {
+            cache.connections.first().map_or(false, |r| {
+                desired_departure_time.timestamp_millis() < r.departure.milliseconds_since_epoch
+            })
+        });
+    let connections = match cache {
+        Some(ConnectionsCache { connections, .. }) => {
+            debug!("Using cached connections");
+            connections
+        }
+        None => {
+            debug!("Cache invalidated, fetching routes");
+            let mvg = Mvg::new()?;
+            let start = mvg
+                .find_unambiguous_station_by_name(&config.start)
+                .with_context(|| format!("Failed to find station {}", &config.start))?;
+            let destination = mvg
+                .find_unambiguous_station_by_name(&config.destination)
+                .with_context(|| format!("Failed to find station {}", &config.destination))?;
+            let cache = ConnectionsCache {
+                config,
+                connections: mvg.get_connections(
+                    &start.id,
+                    &destination.id,
+                    desired_departure_time.into(),
+                )?,
+            };
+            if let Err(error) = cache.save() {
+                warn!("Failed to cache routes: {:#}", error);
+            }
+            cache.connections
+        }
+    };
 
     for connection in connections.iter().take(args.number_of_connections as usize) {
         println!(
             "{}",
-            display_with_walk_time(&connection, plan.walk_to_start)
+            display_with_walk_time(&connection, walk_time_to_start)
         );
     }
 
@@ -346,6 +391,8 @@ fn process_args(args: Args) -> Result<()> {
 }
 
 fn main() {
+    env_logger::init();
+
     use clap::*;
     let matches = app_from_crate!()
         .setting(AppSettings::UnifiedHelpMessage)
