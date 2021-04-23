@@ -13,15 +13,16 @@ use std::io::Read;
 
 use anyhow::{anyhow, Context, Result};
 use reqwest::blocking::Client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use std::fmt::{Display, Formatter};
 use std::ops::Add;
+use std::path::PathBuf;
 use url::Url;
 
-#[derive(Debug, Deserialize, Clone, Copy)]
-#[serde(from = "i64")]
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[serde(from = "i64", into = "i64")]
 struct Timestamp {
     milliseconds_since_epoch: i64,
 }
@@ -31,6 +32,12 @@ impl From<i64> for Timestamp {
         Self {
             milliseconds_since_epoch: v,
         }
+    }
+}
+
+impl From<Timestamp> for i64 {
+    fn from(ts: Timestamp) -> Self {
+        ts.milliseconds_since_epoch
     }
 }
 
@@ -54,7 +61,7 @@ impl From<DateTime<Utc>> for Timestamp {
     }
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 enum Location {
     #[serde(rename = "station")]
@@ -63,19 +70,19 @@ enum Location {
     Other,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct LocationsResponse {
     locations: Vec<Location>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ConnectionPart {
     from: Location,
     to: Location,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Connection {
     from: Location,
@@ -86,7 +93,7 @@ struct Connection {
     connection_parts: Vec<ConnectionPart>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 
 struct ConnectionsResponse {
@@ -153,7 +160,7 @@ impl Mvg {
 }
 
 /// A station ID.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct StationId(String);
 
 impl StationId {
@@ -177,7 +184,7 @@ impl StationId {
 }
 
 /// The configuration file.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Config {
     /// The name of the start station.
     start: String,
@@ -185,6 +192,31 @@ struct Config {
     destination: String,
     /// How much time to account for to walk to the start station.
     walk_to_start_in_minutes: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ConnectionsCache {
+    config: Config,
+    last_routes: Vec<Connection>,
+}
+
+impl ConnectionsCache {
+    fn cache_path() -> PathBuf {
+        dirs::cache_dir()
+            .expect("cache directory missing")
+            .join("de.swsnr.home")
+            .join("connections")
+    }
+
+    fn load() -> Option<Self> {
+        File::open(Self::cache_path())
+            .ok()
+            .and_then(|mut source| {
+                let mut buf = Vec::new();
+                source.read_to_end(&mut buf).map(|_| buf).ok()
+            })
+            .and_then(|buf| flexbuffers::from_slice(&buf).ok())
+    }
 }
 
 #[derive(Debug)]
@@ -288,6 +320,14 @@ struct Args {
 fn process_args(args: Args) -> Result<()> {
     let config = load_config()?;
 
+    let now = Utc::now();
+
+    ConnectionsCache::load()
+        // Discard cache if config doesn't match
+        .filter(|cache| cache.config == config)
+        .filter(|cache| !cache.last_routes.is_empty())
+        .filter(|cache| )
+
     let mvg = Mvg::new()?;
     let plan = ConnectionPlan::resolve_from_config(&mvg, &config)?;
     let start = Utc::now().add(plan.walk_to_start);
@@ -300,8 +340,6 @@ fn process_args(args: Args) -> Result<()> {
         );
     }
 
-    // TODO: Cache routes and print routes from cache
-    // TODO: Evict cache if the first cached route is in the past
     // TODO: Add command line flag to clear cache forcibly
 
     Ok(())
