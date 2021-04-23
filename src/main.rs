@@ -40,9 +40,9 @@ impl ToString for Timestamp {
     }
 }
 
-impl Into<DateTime<Utc>> for Timestamp {
-    fn into(self) -> DateTime<Utc> {
-        Utc.timestamp_millis(self.milliseconds_since_epoch)
+impl From<Timestamp> for DateTime<Utc> {
+    fn from(ts: Timestamp) -> Self {
+        Utc.timestamp_millis(ts.milliseconds_since_epoch)
     }
 }
 
