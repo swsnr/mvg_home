@@ -382,6 +382,8 @@ fn process_args(args: Args) -> Result<()> {
             };
             if let Err(error) = cache.save() {
                 warn!("Failed to cache routes: {:#}", error);
+            } else {
+                debug!("Cached routes")
             }
             cache.connections
         }
