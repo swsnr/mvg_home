@@ -10,23 +10,47 @@
 
 use std::fs::File;
 use std::io::Read;
-use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use reqwest::blocking::Client;
 use serde::Deserialize;
 
+use chrono::{DateTime, Duration, TimeZone, Utc};
+use std::ops::Add;
 use url::Url;
 
-/// The configuration file.
-#[derive(Debug, Deserialize)]
-struct Config {
-    /// The name of the start station.
-    start: String,
-    /// The name of the destination station.
-    destination: String,
-    /// How much time to account for to walk to the start station.
-    walk_to_start_in_minutes: u8,
+#[derive(Debug, Deserialize, Clone, Copy)]
+#[serde(from = "i64")]
+struct Timestamp {
+    milliseconds_since_epoch: i64,
+}
+
+impl From<i64> for Timestamp {
+    fn from(v: i64) -> Self {
+        Self {
+            milliseconds_since_epoch: v,
+        }
+    }
+}
+
+impl ToString for Timestamp {
+    fn to_string(&self) -> String {
+        self.milliseconds_since_epoch.to_string()
+    }
+}
+
+impl Into<DateTime<Utc>> for Timestamp {
+    fn into(self) -> DateTime<Utc> {
+        Utc.timestamp_millis(self.milliseconds_since_epoch)
+    }
+}
+
+impl From<DateTime<Utc>> for Timestamp {
+    fn from(v: DateTime<Utc>) -> Self {
+        Self {
+            milliseconds_since_epoch: v.timestamp_millis(),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -41,6 +65,30 @@ enum Location {
 #[derive(Debug, Deserialize, Clone)]
 struct LocationsResponse {
     locations: Vec<Location>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ConnectionPart {
+    from: Location,
+    to: Location,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct Connection {
+    departure: Timestamp,
+    from: Location,
+    to: Location,
+    #[serde(rename = "connectionPartList")]
+    connection_parts: Vec<ConnectionPart>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+
+struct ConnectionsResponse {
+    connection_list: Vec<Connection>,
 }
 
 struct Mvg {
@@ -61,14 +109,44 @@ impl Mvg {
             "https://www.mvg.de/api/fahrinfo/location/queryWeb",
             &[("q", name.as_ref())],
         )?;
-        let response =
-            self.client.get(url.clone()).send().with_context(|| {
-                format!("Failed query URL to resolve location {}", name.as_ref())
+        let response = self
+            .client
+            .get(url.clone())
+            .header("Accept", "application/json")
+            .send()
+            .with_context(|| {
+                format!("Failed to query URL to resolve location {}", name.as_ref())
             })?;
         response
             .json::<LocationsResponse>()
             .map(|response| response.locations)
             .with_context(|| format!("Failed to parse response from {}", url))
+    }
+
+    fn get_connections<S: AsRef<str>, T: AsRef<str>>(
+        &self,
+        from_station_id: S,
+        to_station_id: T,
+        start: Timestamp,
+    ) -> Result<Vec<Connection>> {
+        let url = Url::parse_with_params(
+            "https://www.mvg.de/api/fahrinfo/routing",
+            &[
+                ("fromStation", from_station_id.as_ref()),
+                ("toStation", to_station_id.as_ref()),
+                ("time", &start.to_string()),
+            ],
+        )?;
+        let response = self
+            .client
+            .get(url.clone())
+            .header("Accept", "application/json")
+            .send()
+            .with_context(|| format!("Failed to query URL to resolve location {}", url.as_ref()))?;
+        response
+            .json::<ConnectionsResponse>()
+            .map(|response| response.connection_list)
+            .with_context(|| format!("Failed to decode response from {}", url))
     }
 }
 
@@ -96,6 +174,17 @@ impl StationId {
     }
 }
 
+/// The configuration file.
+#[derive(Debug, Deserialize)]
+struct Config {
+    /// The name of the start station.
+    start: String,
+    /// The name of the destination station.
+    destination: String,
+    /// How much time to account for to walk to the start station.
+    walk_to_start_in_minutes: u8,
+}
+
 #[derive(Debug)]
 struct RoutePlan {
     /// The ID of the start station.
@@ -113,7 +202,7 @@ impl RoutePlan {
                 .with_context(|| format!("Failed to resolve station {}", &config.start))?,
             destination: StationId::resolve_name_unambiguously(mvg, &config.destination)
                 .with_context(|| format!("Failed to resolve station {}", &config.destination))?,
-            walk_to_start: Duration::from_secs((config.walk_to_start_in_minutes as u64) * 60),
+            walk_to_start: Duration::minutes(config.walk_to_start_in_minutes as i64),
         })
     }
 }
@@ -151,9 +240,10 @@ fn doit() -> Result<()> {
 
     let mvg = Mvg::new()?;
     let plan = RoutePlan::resolve_from_config(&mvg, &config)?;
-    dbg!(plan);
+    let start = Utc::now().add(plan.walk_to_start);
+    let connections = mvg.get_connections(plan.start.0, plan.destination.0, start.into())?;
+    dbg!(connections);
 
-    // TODO: Query for the route plan to get actual routes
     // TODO: Print a given number of routes including the first transit station
     // TODO: Add argument for number of routes
     // TODO: Cache routes and print routes from cache
