@@ -6,7 +6,7 @@
 
 #![deny(warnings, missing_docs, clippy::all)]
 
-//! Get homewards commuting rules
+//! MVG connections for the way home.
 
 use std::fmt::{Display, Formatter};
 use std::fs::File;
@@ -18,6 +18,7 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use log::{debug, warn};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
+use std::ops::Not;
 use url::Url;
 
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
@@ -318,6 +319,7 @@ fn load_config() -> Result<Config> {
 #[derive(Debug, Clone)]
 struct Args {
     number_of_connections: u16,
+    discard_cache: bool,
 }
 
 fn process_args(args: Args) -> Result<()> {
@@ -330,12 +332,19 @@ fn process_args(args: Args) -> Result<()> {
     // destination: StationId::resolve_name_unambiguously(mvg, &config.destination)
     // .with_context(|| format!("Failed to resolve station {}", &config.destination))?,
     // walk_to_start: ,
-    let cache = ConnectionsCache::load()
-        .map_err(|err| {
-            debug!("Failed to read cached connections: {:#}", err);
-            err
+    let cache = args
+        .discard_cache
+        .not()
+        .then(|| {
+            debug!("Using cache");
+            ConnectionsCache::load()
+                .map_err(|err| {
+                    debug!("Failed to read cached connections: {:#}", err);
+                    err
+                })
+                .ok()
         })
-        .ok()
+        .flatten()
         // Discard cache if config doesn't match
         .filter(|cache| cache.config == config)
         .map(|cache| {
@@ -385,8 +394,6 @@ fn process_args(args: Args) -> Result<()> {
         );
     }
 
-    // TODO: Add command line flag to clear cache forcibly
-
     Ok(())
 }
 
@@ -408,10 +415,16 @@ fn main() {
                 .default_value("10")
                 .help("The number of connections to show"),
         )
+        .arg(
+            Arg::with_name("fresh")
+                .long("fresh")
+                .help("Get fresh connections"),
+        )
         .get_matches();
     let args = Args {
         number_of_connections: value_t!(matches, "number_of_connections", u16)
             .unwrap_or_else(|e| e.exit()),
+        discard_cache: matches.is_present("fresh"),
     };
     if let Err(err) = process_args(args) {
         eprintln!("{:#}", err);
