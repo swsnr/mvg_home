@@ -16,6 +16,7 @@ use reqwest::blocking::Client;
 use serde::Deserialize;
 
 use chrono::{DateTime, Duration, TimeZone, Utc};
+use std::fmt::{Display, Formatter};
 use std::ops::Add;
 use url::Url;
 
@@ -77,9 +78,10 @@ struct ConnectionPart {
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct Connection {
-    departure: Timestamp,
     from: Location,
+    departure: Timestamp,
     to: Location,
+    arrival: Timestamp,
     #[serde(rename = "connectionPartList")]
     connection_parts: Vec<ConnectionPart>,
 }
@@ -186,7 +188,7 @@ struct Config {
 }
 
 #[derive(Debug)]
-struct RoutePlan {
+struct ConnectionPlan {
     /// The ID of the start station.
     start: StationId,
     /// The ID of the destination station.
@@ -195,7 +197,7 @@ struct RoutePlan {
     walk_to_start: Duration,
 }
 
-impl RoutePlan {
+impl ConnectionPlan {
     fn resolve_from_config(mvg: &Mvg, config: &Config) -> Result<Self> {
         Ok(Self {
             start: StationId::resolve_name_unambiguously(mvg, &config.start)
@@ -205,6 +207,53 @@ impl RoutePlan {
             walk_to_start: Duration::minutes(config.walk_to_start_in_minutes as i64),
         })
     }
+}
+
+struct ConnectionDisplay<'a> {
+    connection: &'a Connection,
+    walk_time: Duration,
+}
+
+impl<'a> ConnectionDisplay<'a> {
+    fn new(connection: &'a Connection, walk_time: Duration) -> Self {
+        Self {
+            connection,
+            walk_time,
+        }
+    }
+}
+
+impl<'a> Display for ConnectionDisplay<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let departure: DateTime<Utc> = self.connection.departure.into();
+        let arrival: DateTime<Utc> = self.connection.arrival.into();
+        let start = departure - self.walk_time;
+        let start_in = start - Utc::now();
+
+        write!(
+            f,
+            "🚆 In {} min, dep. {} arr. {}",
+            ((start_in.num_seconds() as f64) / 60.0).ceil(),
+            departure.naive_local().time().format("%H:%M"),
+            arrival.naive_local().format("%H:%M")
+        )?;
+        if 2 <= self.connection.connection_parts.len() {
+            if let Location::Station { name, .. } = &self.connection.connection_parts[0].to {
+                write!(f, ", via {}", name)
+            } else {
+                Ok(())
+            }
+        } else {
+            Ok(())
+        }
+    }
+}
+
+fn display_with_walk_time<'a>(
+    connection: &'a Connection,
+    walk_time: Duration,
+) -> impl Display + 'a {
+    ConnectionDisplay::new(connection, walk_time)
 }
 
 fn load_config() -> Result<Config> {
@@ -236,13 +285,18 @@ fn load_config() -> Result<Config> {
 
 fn doit() -> Result<()> {
     let config = load_config()?;
-    println!("{:?}", config);
 
     let mvg = Mvg::new()?;
-    let plan = RoutePlan::resolve_from_config(&mvg, &config)?;
+    let plan = ConnectionPlan::resolve_from_config(&mvg, &config)?;
     let start = Utc::now().add(plan.walk_to_start);
     let connections = mvg.get_connections(plan.start.0, plan.destination.0, start.into())?;
-    dbg!(connections);
+
+    for connection in connections {
+        println!(
+            "{}",
+            display_with_walk_time(&connection, plan.walk_to_start)
+        );
+    }
 
     // TODO: Print a given number of routes including the first transit station
     // TODO: Add argument for number of routes
