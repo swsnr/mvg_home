@@ -14,7 +14,7 @@ use std::io::{Read, Write};
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Context, Result};
-use chrono::{DateTime, Duration, TimeZone, Utc};
+use chrono::{DateTime, Duration, Local, TimeZone};
 use log::{debug, warn};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
@@ -47,14 +47,14 @@ impl ToString for Timestamp {
     }
 }
 
-impl From<Timestamp> for DateTime<Utc> {
+impl From<Timestamp> for DateTime<Local> {
     fn from(ts: Timestamp) -> Self {
-        Utc.timestamp_millis(ts.milliseconds_since_epoch)
+        Local.timestamp_millis(ts.milliseconds_since_epoch)
     }
 }
 
-impl From<DateTime<Utc>> for Timestamp {
-    fn from(v: DateTime<Utc>) -> Self {
+impl From<DateTime<Local>> for Timestamp {
+    fn from(v: DateTime<Local>) -> Self {
         Self {
             milliseconds_since_epoch: v.timestamp_millis(),
         }
@@ -261,10 +261,10 @@ impl<'a> ConnectionDisplay<'a> {
 
 impl<'a> Display for ConnectionDisplay<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let departure: DateTime<Utc> = self.connection.departure.into();
-        let arrival: DateTime<Utc> = self.connection.arrival.into();
+        let departure: DateTime<Local> = self.connection.departure.into();
+        let arrival: DateTime<Local> = self.connection.arrival.into();
         let start = departure - self.walk_time;
-        let start_in = start - Utc::now();
+        let start_in = start - Local::now();
 
         write!(
             f,
@@ -326,7 +326,7 @@ fn process_args(args: Args) -> Result<()> {
     let config = load_config()?;
 
     let walk_time_to_start = Duration::minutes(config.walk_to_start_in_minutes as i64);
-    let desired_departure_time = Utc::now() + walk_time_to_start;
+    let desired_departure_time = Local::now() + walk_time_to_start;
 
     // start:
     // destination: StationId::resolve_name_unambiguously(mvg, &config.destination)
