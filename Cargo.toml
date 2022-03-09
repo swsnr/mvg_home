@@ -9,12 +9,12 @@ publish = false
 [dependencies]
 toml = "^0.5"
 serde = { version = "^1.0", features = ["derive"] }
-dirs = "^3.0"
+dirs = "4.0.0"
 anyhow = "^1.0"
 reqwest = { version = "^0.11", features = ["blocking", "json"] }
 url = "^2.2"
 chrono = "^0.4"
 clap = { version = "^2", default-features = false }
-flexbuffers = "^0.2"
-env_logger = "^0.8"
+flexbuffers = "2.0.0"
+env_logger = "0.9.0"
 log = "^0.4"
