@@ -15,8 +15,11 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Duration, Local, TimeZone};
-use log::{debug, warn};
+use gio::traits::ProxyResolverExt;
+use gio::{Cancellable, ProxyResolver};
+use log::{debug, error, warn};
 use reqwest::blocking::Client;
+use reqwest::Proxy;
 use serde::{Deserialize, Serialize};
 use std::ops::Not;
 use url::Url;
@@ -115,6 +118,20 @@ impl Mvg {
         Ok(Self {
             client: reqwest::blocking::ClientBuilder::new()
                 .user_agent("home")
+                .proxy(Proxy::custom(move |url| {
+                    let proxy = ProxyResolver::default();
+                    match proxy.lookup(url.as_str(), Cancellable::NONE) {
+                        Ok(urls) => {
+                            let proxy = urls.get(0).map(|s| s.to_string());
+                            debug!("Using proxy {:?} for URL {}", proxy, url);
+                            proxy
+                        }
+                        Err(error) => {
+                            error!("Failed to obtain proxy for URL {}: {}", url, error);
+                            None
+                        }
+                    }
+                }))
                 .build()?,
         })
     }
@@ -398,6 +415,7 @@ fn process_args(args: Args) -> Result<()> {
 
 fn main() {
     env_logger::init();
+    glib::log_set_default_handler(glib::rust_log_handler);
 
     use clap::*;
     let matches = app_from_crate!()
