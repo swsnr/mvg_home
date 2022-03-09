@@ -390,10 +390,7 @@ fn process_args(args: Args) -> Result<()> {
     };
 
     for connection in connections.iter().take(args.number_of_connections as usize) {
-        println!(
-            "{}",
-            display_with_walk_time(&connection, walk_time_to_start)
-        );
+        println!("{}", display_with_walk_time(connection, walk_time_to_start));
     }
 
     Ok(())
