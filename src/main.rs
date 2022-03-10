@@ -352,10 +352,6 @@ fn process_args(args: Args) -> Result<()> {
     let walk_time_to_start = Duration::minutes(config.walk_to_start_in_minutes as i64);
     let desired_departure_time = Local::now() + walk_time_to_start;
 
-    // start:
-    // destination: StationId::resolve_name_unambiguously(mvg, &config.destination)
-    // .with_context(|| format!("Failed to resolve station {}", &config.destination))?,
-    // walk_to_start: ,
     let cache = args
         .discard_cache
         .not()
