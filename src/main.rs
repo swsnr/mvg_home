@@ -120,11 +120,18 @@ impl Mvg {
                 .user_agent("home")
                 .proxy(Proxy::custom(move |url| {
                     let proxy = ProxyResolver::default();
-                    match proxy.lookup(url.as_str(), Cancellable::NONE) {
-                        Ok(urls) => {
-                            let proxy = urls.get(0).map(|s| s.to_string());
+                    match proxy.lookup(url.as_str(), Cancellable::NONE).map(|u| u.get(0).map(|s| s.to_string())) {
+                        Ok(None) => {
+                            debug!("No proxy returned for URL: {}", url);
+                            None
+                        }
+                        Ok(Some(proxy)) if proxy.starts_with("direct://") => {
+                            debug!("Using direct connection for URL {}", url);
+                            None
+                        }
+                        Ok(Some(proxy)) => {
                             debug!("Using proxy {:?} for URL {}", proxy, url);
-                            proxy
+                            Some(proxy)
                         }
                         Err(error) => {
                             error!("Failed to obtain proxy for URL {}: {}", url, error);
