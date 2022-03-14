@@ -322,9 +322,9 @@ dependencies = [
 
 [[package]]
 name = "glib"
-version = "0.15.8"
+version = "0.15.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb53a1102178803a8ea21d383a4332238e42988be61a97819be583bbb405e969"
+checksum = "89528258cfdc79b1e54591202705be67896ad254f99e3cc2ea3710e0307148f2"
 dependencies = [
  "bitflags",
  "futures-channel",
@@ -427,11 +427,11 @@ dependencies = [
  "dirs",
  "env_logger",
  "flexbuffers",
- "gio",
  "glib",
  "log",
  "reqwest",
  "serde",
+ "system_proxy",
  "toml",
  "url",
 ]
@@ -1024,6 +1024,18 @@ dependencies = [
  "pkg-config",
  "toml",
  "version-compare",
+]
+
+[[package]]
+name = "system_proxy"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15530fbbc7fa0c150174d7a45d4f343ad0e168f02c3d48fe467b45fd58daf5be"
+dependencies = [
+ "gio",
+ "glib",
+ "log",
+ "url",
 ]
 
 [[package]]

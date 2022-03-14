@@ -15,9 +15,7 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Duration, Local, TimeZone};
-use gio::traits::ProxyResolverExt;
-use gio::{Cancellable, ProxyResolver};
-use log::{debug, error, warn};
+use log::{debug, warn};
 use reqwest::blocking::Client;
 use reqwest::Proxy;
 use serde::{Deserialize, Serialize};
@@ -115,30 +113,11 @@ struct Mvg {
 
 impl Mvg {
     fn new() -> Result<Self> {
+        let proxy = system_proxy::default();
         Ok(Self {
             client: reqwest::blocking::ClientBuilder::new()
                 .user_agent("home")
-                .proxy(Proxy::custom(move |url| {
-                    let proxy = ProxyResolver::default();
-                    match proxy.lookup(url.as_str(), Cancellable::NONE).map(|u| u.get(0).map(|s| s.to_string())) {
-                        Ok(None) => {
-                            debug!("No proxy returned for URL: {}", url);
-                            None
-                        }
-                        Ok(Some(proxy)) if proxy.starts_with("direct://") => {
-                            debug!("Using direct connection for URL {}", url);
-                            None
-                        }
-                        Ok(Some(proxy)) => {
-                            debug!("Using proxy {:?} for URL {}", proxy, url);
-                            Some(proxy)
-                        }
-                        Err(error) => {
-                            error!("Failed to obtain proxy for URL {}: {}", url, error);
-                            None
-                        }
-                    }
-                }))
+                .proxy(Proxy::custom(move |url| proxy.for_url(url)))
                 .build()?,
         })
     }
