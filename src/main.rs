@@ -320,12 +320,12 @@ fn load_config() -> Result<Config> {
 }
 
 #[derive(Debug, Clone)]
-struct Args {
+struct Arguments {
     number_of_connections: u16,
     discard_cache: bool,
 }
 
-fn process_args(args: Args) -> Result<()> {
+fn process_args(args: Arguments) -> Result<()> {
     let config = load_config()?;
 
     let walk_time_to_start = Duration::minutes(config.walk_to_start_in_minutes as i64);
@@ -400,14 +400,13 @@ fn main() {
     glib::log_set_default_handler(glib::rust_log_handler);
 
     use clap::*;
-    let matches = app_from_crate!()
-        .setting(AppSettings::UnifiedHelpMessage)
-        .setting(AppSettings::DontCollapseArgsInUsage)
+    let matches = command!()
+        .dont_collapse_args_in_usage(true)
         .setting(AppSettings::DeriveDisplayOrder)
-        .set_term_width(80)
+        .term_width(80)
         .arg(
-            Arg::with_name("number_of_connections")
-                .short("n")
+            Arg::new("number_of_connections")
+                .short('n')
                 .long("connections")
                 .takes_value(true)
                 .value_name("N")
@@ -415,13 +414,14 @@ fn main() {
                 .help("The number of connections to show"),
         )
         .arg(
-            Arg::with_name("fresh")
+            Arg::new("fresh")
                 .long("fresh")
                 .help("Get fresh connections"),
         )
         .get_matches();
-    let args = Args {
-        number_of_connections: value_t!(matches, "number_of_connections", u16)
+    let args = Arguments {
+        number_of_connections: matches
+            .value_of_t("number_of_connections")
             .unwrap_or_else(|e| e.exit()),
         discard_cache: matches.is_present("fresh"),
     };
