@@ -419,7 +419,7 @@ fn main() {
     glib::log_set_default_handler(glib::rust_log_handler);
 
     use clap::*;
-    let matches = command!()
+    let mut matches = command!()
         .dont_collapse_args_in_usage(true)
         .setting(AppSettings::DeriveDisplayOrder)
         .term_width(80)
@@ -429,6 +429,7 @@ fn main() {
                 .takes_value(true)
                 .value_name("FILE")
                 .default_value("$XDG_CONFIG_HOME/de.swsnr.home/config.toml")
+                .value_parser(clap::builder::NonEmptyStringValueParser::new())
                 .help("Config file"),
         )
         .arg(
@@ -438,23 +439,23 @@ fn main() {
                 .takes_value(true)
                 .value_name("N")
                 .default_value("10")
+                .value_parser(clap::value_parser!(u16))
                 .help("The number of connections to show"),
         )
         .arg(
             Arg::new("fresh")
                 .long("fresh")
-                .help("Get fresh connections"),
+                .help("Get fresh connections")
+                .action(clap::ArgAction::SetTrue),
         )
         .get_matches();
     let args = Arguments {
         config_file: match matches.value_source("config") {
             None | Some(clap::ValueSource::DefaultValue) => None,
-            Some(_) => Some(matches.value_of_t("config").unwrap_or_else(|e| e.exit())),
+            Some(_) => Some(matches.remove_one("config").unwrap()),
         },
-        number_of_connections: matches
-            .value_of_t("number_of_connections")
-            .unwrap_or_else(|e| e.exit()),
-        discard_cache: matches.is_present("fresh"),
+        number_of_connections: matches.remove_one("number_of_connections").unwrap(),
+        discard_cache: matches.remove_one("fresh").unwrap(),
     };
     if let Err(err) = process_args(args) {
         eprintln!("{:#}", err);
