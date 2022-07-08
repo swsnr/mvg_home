@@ -1,0 +1,3 @@
+start = "Hauptbahnhof"
+destination = "Ostbahnhof München"
+walk_to_start_in_minutes = 10
