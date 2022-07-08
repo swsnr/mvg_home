@@ -429,7 +429,7 @@ fn main() {
                 .takes_value(true)
                 .value_name("FILE")
                 .default_value("$XDG_CONFIG_HOME/de.swsnr.home/config.toml")
-                .value_parser(clap::builder::NonEmptyStringValueParser::new())
+                .value_parser(clap::value_parser!(PathBuf))
                 .help("Config file"),
         )
         .arg(
