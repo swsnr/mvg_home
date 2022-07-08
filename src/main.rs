@@ -11,7 +11,7 @@
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Duration, Local, TimeZone};
@@ -292,15 +292,11 @@ fn display_with_walk_time(connection: &'_ Connection, walk_time: Duration) -> im
     ConnectionDisplay::new(connection, walk_time)
 }
 
-fn load_config() -> Result<Config> {
-    let config_path = dirs::config_dir()
-        .with_context(|| "Missing HOME directory".to_string())?
-        .join("de.swsnr.home")
-        .join("home.toml");
-    let mut source = File::open(&config_path).with_context(|| {
+fn load_config<P: AsRef<Path>>(config_path: P) -> Result<Config> {
+    let mut source = File::open(config_path.as_ref()).with_context(|| {
         format!(
             "Failed to open configuration file at {}",
-            config_path.display()
+            config_path.as_ref().display()
         )
     })?;
 
@@ -308,25 +304,33 @@ fn load_config() -> Result<Config> {
     source.read_to_end(&mut buffer).with_context(|| {
         format!(
             "Failed to read configuration file at {}",
-            config_path.display()
+            config_path.as_ref().display()
         )
     })?;
     toml::from_slice(&buffer).with_context(|| {
         format!(
             "Failed to parse configuration from {}",
-            config_path.display()
+            config_path.as_ref().display()
         )
     })
 }
 
 #[derive(Debug, Clone)]
 struct Arguments {
+    config_file: Option<PathBuf>,
     number_of_connections: u16,
     discard_cache: bool,
 }
 
 fn process_args(args: Arguments) -> Result<()> {
-    let config = load_config()?;
+    let config_file = match args.config_file {
+        Some(file) => file,
+        None => dirs::config_dir()
+            .with_context(|| "Missing HOME directory".to_string())?
+            .join("de.swsnr.home")
+            .join("home.toml"),
+    };
+    let config = load_config(config_file)?;
 
     let walk_time_to_start = Duration::minutes(config.walk_to_start_in_minutes as i64);
     let desired_departure_time = Local::now() + walk_time_to_start;
@@ -405,6 +409,14 @@ fn main() {
         .setting(AppSettings::DeriveDisplayOrder)
         .term_width(80)
         .arg(
+            Arg::new("config")
+                .long("config")
+                .takes_value(true)
+                .value_name("FILE")
+                .default_value("$XDG_CONFIG_HOME/de.swsnr.home/config.toml")
+                .help("Config file"),
+        )
+        .arg(
             Arg::new("number_of_connections")
                 .short('n')
                 .long("connections")
@@ -420,6 +432,10 @@ fn main() {
         )
         .get_matches();
     let args = Arguments {
+        config_file: match matches.value_source("config") {
+            None | Some(clap::ValueSource::DefaultValue) => None,
+            Some(_) => Some(matches.value_of_t("config").unwrap_or_else(|e| e.exit())),
+        },
         number_of_connections: matches
             .value_of_t("number_of_connections")
             .unwrap_or_else(|e| e.exit()),
