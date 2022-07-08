@@ -67,7 +67,7 @@ mod unix_millis {
         })
     }
 
-    pub fn serialize<'de, S>(value: &OffsetDateTime, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S>(value: &OffsetDateTime, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
@@ -394,7 +394,7 @@ fn process_args(args: Arguments) -> Result<()> {
                 connections: mvg.get_connections(
                     &start.id,
                     &destination.id,
-                    desired_departure_time.into(),
+                    desired_departure_time,
                 )?,
             };
             if let Err(error) = cache.save() {
