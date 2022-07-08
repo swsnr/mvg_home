@@ -151,7 +151,22 @@ impl Mvg {
             })
             .collect();
         if 1 < stations.len() {
-            Err(anyhow!("Ambiguous results for {}", name.as_ref()))
+            // If we find more than one station let's see if there's one which
+            // matches the given name exactly.
+            match stations.iter().find(|s| s.name == name.as_ref()) {
+                // Uhg, a clone, but I have no idea to teach rust that we can
+                // safely move out of "stations" here.
+                Some(station) => Ok(station.clone()),
+                None => Err(anyhow!(
+                    "Ambiguous results for {}: {}",
+                    name.as_ref(),
+                    stations
+                        .into_iter()
+                        .map(|s| s.name)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )),
+            }
         } else {
             stations
                 .pop()
