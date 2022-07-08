@@ -14,53 +14,13 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
-use chrono::{DateTime, Duration, Local, TimeZone};
+use chrono::{DateTime, Duration, Local, Utc};
 use log::{debug, warn};
 use reqwest::blocking::Client;
 use reqwest::Proxy;
 use serde::{Deserialize, Serialize};
 use std::ops::Not;
 use url::Url;
-
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
-#[serde(from = "i64", into = "i64")]
-struct Timestamp {
-    milliseconds_since_epoch: i64,
-}
-
-impl From<i64> for Timestamp {
-    fn from(v: i64) -> Self {
-        Self {
-            milliseconds_since_epoch: v,
-        }
-    }
-}
-
-impl From<Timestamp> for i64 {
-    fn from(ts: Timestamp) -> Self {
-        ts.milliseconds_since_epoch
-    }
-}
-
-impl ToString for Timestamp {
-    fn to_string(&self) -> String {
-        self.milliseconds_since_epoch.to_string()
-    }
-}
-
-impl From<Timestamp> for DateTime<Local> {
-    fn from(ts: Timestamp) -> Self {
-        Local.timestamp_millis(ts.milliseconds_since_epoch)
-    }
-}
-
-impl From<DateTime<Local>> for Timestamp {
-    fn from(v: DateTime<Local>) -> Self {
-        Self {
-            milliseconds_since_epoch: v.timestamp_millis(),
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Station {
@@ -89,13 +49,34 @@ struct ConnectionPart {
     to: Location,
 }
 
+mod millis_since_epoch {
+    use chrono::{DateTime, TimeZone, Utc};
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<DateTime<Utc>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Ok(Utc.timestamp_millis(i64::deserialize(deserializer)?))
+    }
+
+    pub fn serialize<'de, S>(value: &DateTime<Utc>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_i64(value.timestamp_millis())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Connection {
     from: Location,
-    departure: Timestamp,
+    #[serde(with = "millis_since_epoch")]
+    departure: DateTime<Utc>,
     to: Location,
-    arrival: Timestamp,
+    #[serde(with = "millis_since_epoch")]
+    arrival: DateTime<Utc>,
     #[serde(rename = "connectionPartList")]
     connection_parts: Vec<ConnectionPart>,
 }
@@ -178,14 +159,14 @@ impl Mvg {
         &self,
         from_station_id: S,
         to_station_id: T,
-        start: Timestamp,
+        start: DateTime<Utc>,
     ) -> Result<Vec<Connection>> {
         let url = Url::parse_with_params(
             "https://www.mvg.de/api/fahrinfo/routing",
             &[
                 ("fromStation", from_station_id.as_ref()),
                 ("toStation", to_station_id.as_ref()),
-                ("time", &start.to_string()),
+                ("time", &start.timestamp_millis().to_string()),
             ],
         )?;
         let response = self
@@ -372,9 +353,10 @@ fn process_args(args: Arguments) -> Result<()> {
         // Discard cache if it's empty or if the first connection departs before the desired departure time,
         // that is if the connection cache's outdated.
         .filter(|cache| {
-            cache.connections.first().map_or(false, |r| {
-                desired_departure_time.timestamp_millis() < r.departure.milliseconds_since_epoch
-            })
+            cache
+                .connections
+                .first()
+                .map_or(false, |r| desired_departure_time < r.departure)
         });
     let connections = match cache {
         Some(ConnectionsCache { connections, .. }) => {
