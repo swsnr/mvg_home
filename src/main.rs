@@ -11,6 +11,7 @@
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::{Read, Write};
+use std::ops::Not;
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
@@ -19,7 +20,6 @@ use log::{debug, warn};
 use reqwest::blocking::Client;
 use reqwest::Proxy;
 use serde::{Deserialize, Serialize};
-use std::ops::Not;
 use url::Url;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
