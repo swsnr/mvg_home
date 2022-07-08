@@ -15,11 +15,12 @@ use std::ops::Not;
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
-use chrono::{DateTime, Duration, Local, Utc};
 use log::{debug, warn};
 use reqwest::blocking::Client;
 use reqwest::Proxy;
 use serde::{Deserialize, Serialize};
+use time::macros::format_description;
+use time::{Duration, OffsetDateTime, UtcOffset};
 use url::Url;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,22 +50,28 @@ struct ConnectionPart {
     to: Location,
 }
 
-mod millis_since_epoch {
-    use chrono::{DateTime, TimeZone, Utc};
-    use serde::{Deserialize, Deserializer, Serializer};
+mod unix_millis {
+    use serde::{
+        de::{self, Unexpected},
+        Deserialize, Deserializer, Serializer,
+    };
+    use time::OffsetDateTime;
 
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<DateTime<Utc>, D::Error>
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<OffsetDateTime, D::Error>
     where
         D: Deserializer<'de>,
     {
-        Ok(Utc.timestamp_millis(i64::deserialize(deserializer)?))
+        let value = i64::deserialize(deserializer)? / 1000;
+        OffsetDateTime::from_unix_timestamp(value).map_err(|err| {
+            de::Error::invalid_value(Unexpected::Signed(value), &format!("{}", err).as_str())
+        })
     }
 
-    pub fn serialize<'de, S>(value: &DateTime<Utc>, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<'de, S>(value: &OffsetDateTime, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        serializer.serialize_i64(value.timestamp_millis())
+        serializer.serialize_i64(value.unix_timestamp() * 1000)
     }
 }
 
@@ -72,11 +79,11 @@ mod millis_since_epoch {
 #[serde(rename_all = "camelCase")]
 struct Connection {
     from: Location,
-    #[serde(with = "millis_since_epoch")]
-    departure: DateTime<Utc>,
+    #[serde(with = "unix_millis")]
+    departure: OffsetDateTime,
     to: Location,
-    #[serde(with = "millis_since_epoch")]
-    arrival: DateTime<Utc>,
+    #[serde(with = "unix_millis")]
+    arrival: OffsetDateTime,
     #[serde(rename = "connectionPartList")]
     connection_parts: Vec<ConnectionPart>,
 }
@@ -159,14 +166,14 @@ impl Mvg {
         &self,
         from_station_id: S,
         to_station_id: T,
-        start: DateTime<Utc>,
+        start: OffsetDateTime,
     ) -> Result<Vec<Connection>> {
         let url = Url::parse_with_params(
             "https://www.mvg.de/api/fahrinfo/routing",
             &[
                 ("fromStation", from_station_id.as_ref()),
                 ("toStation", to_station_id.as_ref()),
-                ("time", &start.timestamp_millis().to_string()),
+                ("time", &(start.unix_timestamp() * 1000).to_string()),
             ],
         )?;
         let response = self
@@ -247,30 +254,33 @@ impl ConnectionsCache {
 struct ConnectionDisplay<'a> {
     connection: &'a Connection,
     walk_time: Duration,
+    local_offset: UtcOffset,
 }
 
 impl<'a> ConnectionDisplay<'a> {
-    fn new(connection: &'a Connection, walk_time: Duration) -> Self {
+    fn new(connection: &'a Connection, walk_time: Duration, local_offset: UtcOffset) -> Self {
         Self {
             connection,
             walk_time,
+            local_offset,
         }
     }
 }
 
 impl<'a> Display for ConnectionDisplay<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let departure: DateTime<Local> = self.connection.departure.into();
-        let arrival: DateTime<Local> = self.connection.arrival.into();
+        let departure = self.connection.departure.to_offset(self.local_offset);
+        let arrival = self.connection.arrival.to_offset(self.local_offset);
         let start = departure - self.walk_time;
-        let start_in = start - Local::now();
+        let start_in = start - OffsetDateTime::now_utc().to_offset(self.local_offset);
 
+        let hh_mm = format_description!("[hour]:[minute]");
         write!(
             f,
             "🚆 In {} min, dep. {} arr. {}",
-            ((start_in.num_seconds() as f64) / 60.0).ceil(),
-            departure.naive_local().time().format("%H:%M"),
-            arrival.naive_local().format("%H:%M")
+            ((start_in.whole_seconds() as f64) / 60.0).ceil(),
+            departure.time().format(hh_mm).unwrap(),
+            arrival.time().format(hh_mm).unwrap()
         )?;
         if 2 <= self.connection.connection_parts.len() {
             if let Location::Station(station) = &self.connection.connection_parts[0].to {
@@ -284,8 +294,12 @@ impl<'a> Display for ConnectionDisplay<'a> {
     }
 }
 
-fn display_with_walk_time(connection: &'_ Connection, walk_time: Duration) -> impl Display + '_ {
-    ConnectionDisplay::new(connection, walk_time)
+fn display_with_walk_time(
+    connection: &'_ Connection,
+    walk_time: Duration,
+    offset: UtcOffset,
+) -> impl Display + '_ {
+    ConnectionDisplay::new(connection, walk_time, offset)
 }
 
 fn load_config<P: AsRef<Path>>(config_path: P) -> Result<Config> {
@@ -329,7 +343,10 @@ fn process_args(args: Arguments) -> Result<()> {
     let config = load_config(config_file)?;
 
     let walk_time_to_start = Duration::minutes(config.walk_to_start_in_minutes as i64);
-    let desired_departure_time = Local::now() + walk_time_to_start;
+    let local_offset = UtcOffset::current_local_offset()
+        .with_context(|| "Cannot determine current local timezone offset")?;
+    let now = OffsetDateTime::now_utc().to_offset(local_offset);
+    let desired_departure_time = now + walk_time_to_start;
 
     let cache = args
         .discard_cache
@@ -390,7 +407,10 @@ fn process_args(args: Arguments) -> Result<()> {
     };
 
     for connection in connections.iter().take(args.number_of_connections as usize) {
-        println!("{}", display_with_walk_time(connection, walk_time_to_start));
+        println!(
+            "{}",
+            display_with_walk_time(connection, walk_time_to_start, local_offset)
+        );
     }
 
     Ok(())
