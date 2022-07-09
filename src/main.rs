@@ -48,6 +48,10 @@ struct LocationsResponse {
 struct ConnectionPart {
     from: Location,
     to: Location,
+    // The label of this connection, e.g. S4
+    label: String,
+    /// The type of transporation, e.g. SBAHN
+    product: String,
 }
 
 mod unix_millis {
@@ -283,8 +287,9 @@ impl<'a> Display for ConnectionDisplay<'a> {
             arrival.time().format(hh_mm).unwrap()
         )?;
         if 2 <= self.connection.connection_parts.len() {
-            if let Location::Station(station) = &self.connection.connection_parts[0].to {
-                write!(f, ", via {}", station.name)
+            let first_part = &self.connection.connection_parts[0];
+            if let Location::Station(station) = &first_part.to {
+                write!(f, ", via {} with {}", station.name, first_part.label)
             } else {
                 Ok(())
             }
