@@ -4,11 +4,13 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+use std::fmt::Display;
+
 use anyhow::{anyhow, Context, Result};
 use reqwest::{Client, Proxy, Url};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
-use tracing::instrument;
+use tracing::{debug, instrument};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Station {
@@ -16,11 +18,43 @@ pub struct Station {
     pub name: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Address {
+    latitude: f64,
+    longitude: f64,
+    place: Option<String>,
+    street: Option<String>,
+    poi: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum Location {
     Station(Station),
+    Address(Address),
     // TODO: There are likely other location variants as well
+}
+
+impl Location {
+    pub fn human_readable(&self) -> HumanReadableLocation {
+        HumanReadableLocation(self)
+    }
+}
+
+pub struct HumanReadableLocation<'a>(&'a Location);
+
+impl<'a> Display for HumanReadableLocation<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
+            Location::Station(station) => write!(f, "{}", station.name),
+            Location::Address(address) => match (&address.street, &address.place) {
+                (None, None) => write!(f, "{:.4},{:.4}", address.latitude, address.longitude),
+                (Some(street), Some(place)) => write!(f, "{}, {}", street, place),
+                (None, Some(street)) => write!(f, "{}", street),
+                (Some(place), None) => write!(f, "{}", place),
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,7 +62,7 @@ struct LocationsResponse {
     locations: Vec<Location>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionPart {
     pub from: Location,
@@ -64,7 +98,7 @@ mod unix_millis {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Connection {
     pub from: Location,
@@ -129,8 +163,16 @@ impl Mvg {
             .get_location_by_name(name.as_ref())
             .await?
             .into_iter()
-            .map(|loc| match loc {
-                Location::Station(station) => station,
+            .filter_map(|loc| match loc {
+                Location::Station(station) => Some(station),
+                other => {
+                    debug!(
+                        "Skipping location {} returned for name {}, not a station",
+                        other.human_readable(),
+                        name.as_ref()
+                    );
+                    None
+                }
             })
             .collect();
         if 1 < stations.len() {

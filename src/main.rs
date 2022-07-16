@@ -47,13 +47,15 @@ impl<'a> Display for ConnectionDisplay<'a> {
             ((start_in.whole_seconds() as f64) / 60.0).ceil(),
             departure.time().format(hh_mm).unwrap(),
             arrival.time().format(hh_mm).unwrap(),
-            match &self.connection.from {
-                Location::Station(station) => station.name.as_str(),
-            }
+            self.connection.from.human_readable(),
         )?;
         if 2 <= self.connection.connection_parts.len() {
-            let Location::Station(station) = &first_part.to;
-            write!(f, " via {} with {}", station.name, first_part.label)
+            write!(
+                f,
+                " via {} with {}",
+                first_part.to.human_readable(),
+                first_part.label
+            )
         } else {
             Ok(())
         }
