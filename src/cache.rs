@@ -9,12 +9,12 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::{config::Config, mvg::Connection};
+use crate::{config::Config, connection::CompleteConnection};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectionsCache {
     pub config: Config,
-    pub connections: Vec<Connection>,
+    pub connections: Vec<CompleteConnection>,
 }
 
 impl ConnectionsCache {

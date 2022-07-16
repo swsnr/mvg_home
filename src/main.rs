@@ -19,23 +19,23 @@ use time::{Duration, OffsetDateTime, UtcOffset};
 
 mod cache;
 mod config;
+mod connection;
 mod mvg;
 
 use cache::*;
 use config::*;
+use connection::*;
 use mvg::*;
 
 struct ConnectionDisplay<'a> {
-    connection: &'a Connection,
-    walk_time: Duration,
+    connection: &'a CompleteConnection,
     local_offset: UtcOffset,
 }
 
 impl<'a> ConnectionDisplay<'a> {
-    fn new(connection: &'a Connection, walk_time: Duration, local_offset: UtcOffset) -> Self {
+    fn new(connection: &'a CompleteConnection, local_offset: UtcOffset) -> Self {
         Self {
             connection,
-            walk_time,
             local_offset,
         }
     }
@@ -43,9 +43,17 @@ impl<'a> ConnectionDisplay<'a> {
 
 impl<'a> Display for ConnectionDisplay<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let departure = self.connection.departure.to_offset(self.local_offset);
-        let arrival = self.connection.arrival.to_offset(self.local_offset);
-        let start = departure - self.walk_time;
+        let departure = self
+            .connection
+            .connection
+            .departure
+            .to_offset(self.local_offset);
+        let arrival = self
+            .connection
+            .connection
+            .arrival
+            .to_offset(self.local_offset);
+        let start = departure - self.connection.walk_to_start;
         let start_in = start - OffsetDateTime::now_utc().to_offset(self.local_offset);
 
         let hh_mm = format_description!("[hour]:[minute]");
@@ -56,8 +64,8 @@ impl<'a> Display for ConnectionDisplay<'a> {
             departure.time().format(hh_mm).unwrap(),
             arrival.time().format(hh_mm).unwrap()
         )?;
-        if 2 <= self.connection.connection_parts.len() {
-            let first_part = &self.connection.connection_parts[0];
+        if 2 <= self.connection.connection.connection_parts.len() {
+            let first_part = &self.connection.connection.connection_parts[0];
             if let Location::Station(station) = &first_part.to {
                 write!(f, ", via {} with {}", station.name, first_part.label)
             } else {
@@ -70,11 +78,10 @@ impl<'a> Display for ConnectionDisplay<'a> {
 }
 
 fn display_with_walk_time(
-    connection: &'_ Connection,
-    walk_time: Duration,
+    connection: &'_ CompleteConnection,
     offset: UtcOffset,
 ) -> impl Display + '_ {
-    ConnectionDisplay::new(connection, walk_time, offset)
+    ConnectionDisplay::new(connection, offset)
 }
 
 #[derive(Debug, Clone)]
@@ -93,7 +100,7 @@ fn process_args(args: Arguments) -> Result<()> {
     let walk_time_to_start = Duration::minutes(config.walk_to_start_in_minutes as i64);
     let local_offset = UtcOffset::current_local_offset()
         .with_context(|| "Cannot determine current local timezone offset")?;
-    let now = OffsetDateTime::now_utc().to_offset(local_offset);
+    let now = OffsetDateTime::now_utc();
     let desired_departure_time = now + walk_time_to_start;
 
     let cache = args
@@ -121,7 +128,7 @@ fn process_args(args: Arguments) -> Result<()> {
             cache
                 .connections
                 .first()
-                .map_or(false, |r| desired_departure_time < r.departure)
+                .map_or(false, |c| now < c.start_to_walk())
         });
     let connections = match cache {
         Some(ConnectionsCache { connections, .. }) => {
@@ -137,13 +144,14 @@ fn process_args(args: Arguments) -> Result<()> {
             let destination = mvg
                 .find_unambiguous_station_by_name(&config.destination)
                 .with_context(|| format!("Failed to find station {}", &config.destination))?;
+            let connections = mvg
+                .get_connections(&start.id, &destination.id, desired_departure_time)?
+                .into_iter()
+                .map(|c| c.with_walk_to_start(walk_time_to_start))
+                .collect();
             let cache = ConnectionsCache {
                 config,
-                connections: mvg.get_connections(
-                    &start.id,
-                    &destination.id,
-                    desired_departure_time,
-                )?,
+                connections,
             };
             if let Err(error) = cache.save() {
                 warn!("Failed to cache routes: {:#}", error);
@@ -155,10 +163,7 @@ fn process_args(args: Arguments) -> Result<()> {
     };
 
     for connection in connections.iter().take(args.number_of_connections as usize) {
-        println!(
-            "{}",
-            display_with_walk_time(connection, walk_time_to_start, local_offset)
-        );
+        println!("{}", display_with_walk_time(connection, local_offset));
     }
 
     Ok(())
