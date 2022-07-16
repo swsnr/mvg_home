@@ -1,4 +1,4 @@
-// Sebastian Wiesner <sebastian@swsnr.de>
+// Copyright Sebastian Wiesner <sebastian@swsnr.de>
 //
 // This Source Code Form is subject to the terms of the Mozilla Public
 // License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -9,251 +9,21 @@
 //! MVG connections for the way home.
 
 use std::fmt::{Display, Formatter};
-use std::fs::File;
-use std::io::{Read, Write};
 use std::ops::Not;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use log::{debug, warn};
-use reqwest::blocking::Client;
-use reqwest::Proxy;
-use serde::{Deserialize, Serialize};
 use time::macros::format_description;
 use time::{Duration, OffsetDateTime, UtcOffset};
-use url::Url;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct Station {
-    id: String,
-    name: String,
-}
+mod cache;
+mod config;
+mod mvg;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-enum Location {
-    #[serde(rename = "station")]
-    Station(Station),
-    #[serde(other)]
-    Other,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct LocationsResponse {
-    locations: Vec<Location>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ConnectionPart {
-    from: Location,
-    to: Location,
-    // The label of this connection, e.g. S4
-    label: String,
-    /// The type of transporation, e.g. SBAHN
-    product: String,
-}
-
-mod unix_millis {
-    use serde::{
-        de::{self, Unexpected},
-        Deserialize, Deserializer, Serializer,
-    };
-    use time::OffsetDateTime;
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<OffsetDateTime, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let value = i64::deserialize(deserializer)? / 1000;
-        OffsetDateTime::from_unix_timestamp(value).map_err(|err| {
-            de::Error::invalid_value(Unexpected::Signed(value), &format!("{}", err).as_str())
-        })
-    }
-
-    pub fn serialize<S>(value: &OffsetDateTime, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_i64(value.unix_timestamp() * 1000)
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Connection {
-    from: Location,
-    #[serde(with = "unix_millis")]
-    departure: OffsetDateTime,
-    to: Location,
-    #[serde(with = "unix_millis")]
-    arrival: OffsetDateTime,
-    #[serde(rename = "connectionPartList")]
-    connection_parts: Vec<ConnectionPart>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-
-struct ConnectionsResponse {
-    connection_list: Vec<Connection>,
-}
-
-struct Mvg {
-    client: Client,
-}
-
-impl Mvg {
-    fn new() -> Result<Self> {
-        let proxy = system_proxy::default();
-        Ok(Self {
-            client: reqwest::blocking::ClientBuilder::new()
-                .user_agent("home")
-                .proxy(Proxy::custom(move |url| proxy.for_url(url)))
-                .build()?,
-        })
-    }
-
-    fn get_location_by_name<S: AsRef<str>>(&self, name: S) -> Result<Vec<Location>> {
-        let url = Url::parse_with_params(
-            "https://www.mvg.de/api/fahrinfo/location/queryWeb",
-            &[("q", name.as_ref())],
-        )?;
-        let response = self
-            .client
-            .get(url.clone())
-            .header("Accept", "application/json")
-            .send()
-            .with_context(|| {
-                format!("Failed to query URL to resolve location {}", name.as_ref())
-            })?;
-        response
-            .json::<LocationsResponse>()
-            .map(|response| response.locations)
-            .with_context(|| format!("Failed to parse response from {}", url))
-    }
-
-    fn find_unambiguous_station_by_name<S: AsRef<str>>(&self, name: S) -> Result<Station> {
-        let mut stations: Vec<Station> = self
-            .get_location_by_name(name.as_ref())?
-            .into_iter()
-            .filter_map(|loc| match loc {
-                Location::Station(station) => Some(station),
-                _ => None,
-            })
-            .collect();
-        if 1 < stations.len() {
-            // If we find more than one station let's see if there's one which
-            // matches the given name exactly.
-            match stations.iter().find(|s| s.name == name.as_ref()) {
-                // Uhg, a clone, but I have no idea to teach rust that we can
-                // safely move out of "stations" here.
-                Some(station) => Ok(station.clone()),
-                None => Err(anyhow!(
-                    "Ambiguous results for {}: {}",
-                    name.as_ref(),
-                    stations
-                        .into_iter()
-                        .map(|s| s.name)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )),
-            }
-        } else {
-            stations
-                .pop()
-                .with_context(|| format!("No matches for {}", name.as_ref()))
-        }
-    }
-
-    fn get_connections<S: AsRef<str>, T: AsRef<str>>(
-        &self,
-        from_station_id: S,
-        to_station_id: T,
-        start: OffsetDateTime,
-    ) -> Result<Vec<Connection>> {
-        let url = Url::parse_with_params(
-            "https://www.mvg.de/api/fahrinfo/routing",
-            &[
-                ("fromStation", from_station_id.as_ref()),
-                ("toStation", to_station_id.as_ref()),
-                ("time", &(start.unix_timestamp() * 1000).to_string()),
-            ],
-        )?;
-        let response = self
-            .client
-            .get(url.clone())
-            .header("Accept", "application/json")
-            .send()
-            .with_context(|| format!("Failed to query URL to resolve location {}", url.as_ref()))?;
-        response
-            .json::<ConnectionsResponse>()
-            .map(|response| response.connection_list)
-            .with_context(|| format!("Failed to decode response from {}", url))
-    }
-}
-
-/// The configuration file.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct Config {
-    /// The name of the start station.
-    start: String,
-    /// The name of the destination station.
-    destination: String,
-    /// How much time to account for to walk to the start station.
-    walk_to_start_in_minutes: u8,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ConnectionsCache {
-    config: Config,
-    connections: Vec<Connection>,
-}
-
-impl ConnectionsCache {
-    fn cache_path() -> PathBuf {
-        dirs::cache_dir()
-            .expect("cache directory missing")
-            .join("de.swsnr.home")
-            .join("connections")
-    }
-
-    fn load() -> Result<Self> {
-        let path = Self::cache_path();
-        let mut source = File::open(&path)
-            .with_context(|| format!("Failed to open cache file {} for reading", path.display()))?;
-
-        let mut buf = Vec::new();
-        source
-            .read_to_end(&mut buf)
-            .with_context(|| format!("Failed to read cache from {}", path.display()))?;
-        flexbuffers::from_slice(&buf)
-            .with_context(|| format!("Failed to deserialize cache from {}", path.display()))
-    }
-
-    fn save(&self) -> Result<()> {
-        let path = Self::cache_path();
-        let cache_dir = path.parent().with_context(|| {
-            format!(
-                "Failed to determine directory of cache path {}",
-                path.display()
-            )
-        })?;
-        std::fs::create_dir_all(cache_dir).with_context(|| {
-            format!(
-                "Failed to create cache directory at {}",
-                cache_dir.display()
-            )
-        })?;
-        let mut sink = File::create(&path)
-            .with_context(|| format!("Failed to open cache file {} for writing", path.display()))?;
-        let buffer = flexbuffers::to_vec(self)
-            .with_context(|| "Failed to serialize connection cache".to_string())?;
-        sink.write_all(&buffer)
-            .with_context(|| format!("Failed to write cache to {}", path.display()))?;
-        Ok(())
-    }
-}
+use cache::*;
+use config::*;
+use mvg::*;
 
 struct ConnectionDisplay<'a> {
     connection: &'a Connection,
@@ -307,29 +77,6 @@ fn display_with_walk_time(
     ConnectionDisplay::new(connection, walk_time, offset)
 }
 
-fn load_config<P: AsRef<Path>>(config_path: P) -> Result<Config> {
-    let mut source = File::open(config_path.as_ref()).with_context(|| {
-        format!(
-            "Failed to open configuration file at {}",
-            config_path.as_ref().display()
-        )
-    })?;
-
-    let mut buffer = Vec::new();
-    source.read_to_end(&mut buffer).with_context(|| {
-        format!(
-            "Failed to read configuration file at {}",
-            config_path.as_ref().display()
-        )
-    })?;
-    toml::from_slice(&buffer).with_context(|| {
-        format!(
-            "Failed to parse configuration from {}",
-            config_path.as_ref().display()
-        )
-    })
-}
-
 #[derive(Debug, Clone)]
 struct Arguments {
     config_file: Option<PathBuf>,
@@ -338,14 +85,10 @@ struct Arguments {
 }
 
 fn process_args(args: Arguments) -> Result<()> {
-    let config_file = match args.config_file {
-        Some(file) => file,
-        None => dirs::config_dir()
-            .with_context(|| "Missing HOME directory".to_string())?
-            .join("de.swsnr.home")
-            .join("home.toml"),
+    let config = match args.config_file {
+        Some(file) => Config::from_file(file)?,
+        None => Config::from_default_location()?,
     };
-    let config = load_config(config_file)?;
 
     let walk_time_to_start = Duration::minutes(config.walk_to_start_in_minutes as i64);
     let local_offset = UtcOffset::current_local_offset()
