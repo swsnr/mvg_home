@@ -107,30 +107,40 @@ fn process_args(args: Arguments) -> Result<()> {
     let now = OffsetDateTime::now_utc();
 
     let mvg = Mvg::new()?;
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
 
-    let cache = args
+    let cleared_cache = args
         .load_cache()
         .update_config(config)
-        .evict_outdated_connections(now)
-        .refresh_empty::<anyhow::Error, _>(|desired| {
+        .evict_outdated_connections(now);
+
+    let new_cache = rt.block_on(cleared_cache.refresh_empty::<anyhow::Error, _, _>(
+        |desired| async {
             debug!(
                 "Updating results for desired connection from {} to {}",
                 desired.start, desired.destination
             );
             let desired_departure_time = now + desired.walk_to_start();
-            let start = mvg.find_unambiguous_station_by_name(&desired.start)?;
-            let destination = mvg.find_unambiguous_station_by_name(&desired.destination)?;
-            let connections =
-                mvg.get_connections(&start.id, &destination.id, desired_departure_time)?;
-            Ok(connections)
-        })?;
+            let start = mvg.find_unambiguous_station_by_name(&desired.start).await?;
+            let destination = mvg
+                .find_unambiguous_station_by_name(&desired.destination)
+                .await?;
+            let connections = mvg
+                .get_connections(&start.id, &destination.id, desired_departure_time)
+                .await?;
+            Ok((desired, connections))
+        },
+    ))?;
 
     debug!("Saving cache");
-    if let Err(error) = cache.save() {
+    if let Err(error) = new_cache.save() {
         warn!("Failed to save cached connections: {:#}", error);
     }
 
-    for (walk_to_start, connection) in cache
+    for (walk_to_start, connection) in new_cache
         .all_connections()
         .iter()
         .take(args.number_of_connections as usize)
@@ -153,7 +163,6 @@ fn main() {
                 .unwrap(),
         )
         .init();
-    // Redirect log to tracing
     // And redirect glib to log and hence to tracing
     glib::log_set_default_handler(glib::rust_log_handler);
 

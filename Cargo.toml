@@ -11,7 +11,7 @@ toml = "^0.5"
 serde = { version = "^1.0", features = ["derive"] }
 dirs = "4.0.0"
 anyhow = "^1.0"
-reqwest = { version = "^0.11", features = ["blocking", "json"] }
+reqwest = { version = "^0.11", features = ["json"] }
 url = "^2.2"
 time = { version = "0.3.11", features = [
     "local-offset",
@@ -23,8 +23,10 @@ clap = { version = "3.2.8", default-features = false, features = [
     "std",
     "cargo",
 ] }
+futures = "0.3.21"
 flexbuffers = "2.0.0"
 tracing = "0.1.35"
 tracing-subscriber = { version = "0.3.14", features = ["env-filter"] }
 glib = { version = "0.15.7", features = ["log"] }
 system_proxy = "0.1.0"
+tokio = { version = "1.20.0", features = ["rt"] }

@@ -5,7 +5,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 use anyhow::{anyhow, Context, Result};
-use reqwest::{blocking::Client, Proxy, Url};
+use reqwest::{Client, Proxy, Url};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use tracing::instrument;
@@ -87,12 +87,11 @@ pub struct Mvg {
     client: Client,
 }
 
-// TODO: Make this client asynchronous and fetch all missing routes in parallel!
 impl Mvg {
     pub fn new() -> Result<Self> {
         let proxy = system_proxy::default();
         Ok(Self {
-            client: reqwest::blocking::ClientBuilder::new()
+            client: reqwest::ClientBuilder::new()
                 .user_agent("home")
                 .proxy(Proxy::custom(move |url| proxy.for_url(url)))
                 .build()?,
@@ -100,7 +99,7 @@ impl Mvg {
     }
 
     #[instrument(skip(self), fields(name=name.as_ref()))]
-    pub fn get_location_by_name<S: AsRef<str>>(&self, name: S) -> Result<Vec<Location>> {
+    pub async fn get_location_by_name<S: AsRef<str>>(&self, name: S) -> Result<Vec<Location>> {
         let url = Url::parse_with_params(
             "https://www.mvg.de/api/fahrinfo/location/queryWeb",
             &[("q", name.as_ref())],
@@ -110,19 +109,25 @@ impl Mvg {
             .get(url.clone())
             .header("Accept", "application/json")
             .send()
+            .await
             .with_context(|| {
                 format!("Failed to query URL to resolve location {}", name.as_ref())
             })?;
         response
             .json::<LocationsResponse>()
+            .await
             .map(|response| response.locations)
             .with_context(|| format!("Failed to parse response from {}", url))
     }
 
     #[instrument(skip(self), fields(name=name.as_ref()))]
-    pub fn find_unambiguous_station_by_name<S: AsRef<str>>(&self, name: S) -> Result<Station> {
+    pub async fn find_unambiguous_station_by_name<S: AsRef<str>>(
+        &self,
+        name: S,
+    ) -> Result<Station> {
         let mut stations: Vec<Station> = self
-            .get_location_by_name(name.as_ref())?
+            .get_location_by_name(name.as_ref())
+            .await?
             .into_iter()
             .map(|loc| match loc {
                 Location::Station(station) => station,
@@ -153,7 +158,7 @@ impl Mvg {
     }
 
     #[instrument(skip(self), fields(from_station_id=from_station_id.as_ref(), to_station_id=to_station_id.as_ref()))]
-    pub fn get_connections<S: AsRef<str>, T: AsRef<str>>(
+    pub async fn get_connections<S: AsRef<str>, T: AsRef<str>>(
         &self,
         from_station_id: S,
         to_station_id: T,
@@ -172,9 +177,11 @@ impl Mvg {
             .get(url.clone())
             .header("Accept", "application/json")
             .send()
+            .await
             .with_context(|| format!("Failed to query URL to resolve location {}", url.as_ref()))?;
         response
             .json::<ConnectionsResponse>()
+            .await
             .map(|response| response.connection_list)
             .with_context(|| format!("Failed to decode response from {}", url))
     }

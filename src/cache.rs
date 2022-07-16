@@ -4,12 +4,13 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-use std::path::PathBuf;
+use std::{future::Future, path::PathBuf};
 
 use anyhow::{Context, Result};
+use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use time::{Duration, OffsetDateTime};
-use tracing::{debug, instrument};
+use tracing::{debug, info_span, instrument, Instrument};
 
 use crate::{
     config::{Config, DesiredConnection},
@@ -114,22 +115,30 @@ impl ConnectionsCache {
     ///
     /// Call `update` for every desired connection with an empty list of connections.
     #[instrument(skip_all)]
-    pub fn refresh_empty<E, F>(self, update: F) -> std::result::Result<Self, E>
+    pub async fn refresh_empty<E, F, U>(self, update: U) -> std::result::Result<Self, E>
     where
-        F: Fn(&DesiredConnection) -> std::result::Result<Vec<Connection>, E>,
+        U: Fn(DesiredConnection) -> F,
+        F: Future<Output = std::result::Result<(DesiredConnection, Vec<Connection>), E>>,
     {
-        let connections = self
+        let connections = join_all(self
             .connections
             .into_iter()
             .map(|(desired, connections)| {
-                if connections.is_empty() {
-                    debug!("Desired connection from {} to {} has no connections, refreshing connections", desired.start, desired.destination);
-                    update(&desired).map(|cs| (desired, cs))
-                } else {
-                    Ok((desired, connections))
-                }
+                let update_span = info_span!("update", start=%desired.start, destination=%desired.destination);
+                async {
+                    if connections.is_empty() {
+                        debug!("Desired connection from {} to {} has no connections, refreshing connections", desired.start, desired.destination);
+                        update(desired).await
+                    } else {
+                        Ok((desired, connections))
+                    }
+                }.instrument(update_span)
             })
-            .collect::<Result<_, E>>()?;
+            .collect::<Vec<_>>())
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>, E>>()?;
+
         Ok(Self { connections })
     }
 
