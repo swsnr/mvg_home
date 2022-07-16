@@ -7,9 +7,9 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use log::debug;
 use serde::{Deserialize, Serialize};
 use time::{Duration, OffsetDateTime};
+use tracing::debug;
 
 use crate::{
     config::{Config, DesiredConnection},

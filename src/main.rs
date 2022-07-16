@@ -12,9 +12,10 @@ use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use log::{debug, warn};
 use time::macros::format_description;
 use time::{Duration, OffsetDateTime, UtcOffset};
+use tracing::{debug, warn};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 mod cache;
 mod config;
@@ -144,7 +145,16 @@ fn process_args(args: Arguments) -> Result<()> {
 }
 
 fn main() {
-    env_logger::init();
+    tracing_subscriber::registry()
+        .with(fmt::layer().pretty())
+        .with(
+            EnvFilter::try_from_default_env()
+                .or_else(|_| EnvFilter::try_new("error"))
+                .unwrap(),
+        )
+        .init();
+    // Redirect log to tracing
+    // And redirect glib to log and hence to tracing
     glib::log_set_default_handler(glib::rust_log_handler);
 
     use clap::*;
