@@ -18,58 +18,41 @@ use time::{Duration, OffsetDateTime, UtcOffset};
 
 mod cache;
 mod config;
-mod connection;
 mod mvg;
 
 use cache::*;
 use config::*;
-use connection::*;
 use mvg::*;
 
 struct ConnectionDisplay<'a> {
-    connection: &'a CompleteConnection,
+    connection: &'a Connection,
+    walk_to_start: Duration,
     local_offset: UtcOffset,
-}
-
-impl<'a> ConnectionDisplay<'a> {
-    fn new(connection: &'a CompleteConnection, local_offset: UtcOffset) -> Self {
-        Self {
-            connection,
-            local_offset,
-        }
-    }
 }
 
 impl<'a> Display for ConnectionDisplay<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let departure = self
-            .connection
-            .connection
-            .departure
-            .to_offset(self.local_offset);
-        let arrival = self
-            .connection
-            .connection
-            .arrival
-            .to_offset(self.local_offset);
-        let start = departure - self.connection.walk_to_start;
-        let start_in = start - OffsetDateTime::now_utc().to_offset(self.local_offset);
+        let departure = self.connection.departure.to_offset(self.local_offset);
+        let arrival = self.connection.arrival.to_offset(self.local_offset);
+        let start_in = departure - self.walk_to_start - OffsetDateTime::now_utc();
 
         let hh_mm = format_description!("[hour]:[minute]");
+
+        let first_part = &self.connection.connection_parts[0];
+
         write!(
             f,
-            "🚆 In {} min, dep. {} arr. {}",
+            "🚆 In {} min, dep. {} arr. {}, from {}",
             ((start_in.whole_seconds() as f64) / 60.0).ceil(),
             departure.time().format(hh_mm).unwrap(),
-            arrival.time().format(hh_mm).unwrap()
-        )?;
-        if 2 <= self.connection.connection.connection_parts.len() {
-            let first_part = &self.connection.connection.connection_parts[0];
-            if let Location::Station(station) = &first_part.to {
-                write!(f, ", via {} with {}", station.name, first_part.label)
-            } else {
-                Ok(())
+            arrival.time().format(hh_mm).unwrap(),
+            match &self.connection.from {
+                Location::Station(station) => station.name.as_str(),
             }
+        )?;
+        if 2 <= self.connection.connection_parts.len() {
+            let Location::Station(station) = &first_part.to;
+            write!(f, " via {} with {}", station.name, first_part.label)
         } else {
             Ok(())
         }
@@ -77,10 +60,15 @@ impl<'a> Display for ConnectionDisplay<'a> {
 }
 
 fn display_with_walk_time(
-    connection: &'_ CompleteConnection,
-    offset: UtcOffset,
+    connection: &'_ Connection,
+    walk_to_start: Duration,
+    local_offset: UtcOffset,
 ) -> impl Display + '_ {
-    ConnectionDisplay::new(connection, offset)
+    ConnectionDisplay {
+        connection,
+        walk_to_start,
+        local_offset,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -90,63 +78,70 @@ struct Arguments {
     discard_cache: bool,
 }
 
+impl Arguments {
+    fn load_cache(&self) -> ConnectionsCache {
+        if self.discard_cache {
+            debug!("Cache discarded per command line arguments");
+            ConnectionsCache::default()
+        } else {
+            debug!("Using cache");
+            ConnectionsCache::load()
+                .map_err(|err| {
+                    debug!("Failed to read cached connections: {:#}", err);
+                    err
+                })
+                .unwrap_or_default()
+        }
+    }
+}
+
 fn process_args(args: Arguments) -> Result<()> {
-    let config = match args.config_file {
+    let config = match &args.config_file {
         Some(file) => Config::from_file(file)?,
         None => Config::from_default_location()?,
     };
 
-    let walk_time_to_start = Duration::minutes(config.walk_to_start_in_minutes as i64);
     let local_offset = UtcOffset::current_local_offset()
         .with_context(|| "Cannot determine current local timezone offset")?;
     let now = OffsetDateTime::now_utc();
-    let desired_departure_time = now + walk_time_to_start;
 
-    let connections: Option<Vec<CompleteConnection>> = if args.discard_cache {
-        debug!("Cache discarded per command line arguments");
-        None
-    } else {
-        debug!("Using cache");
-        ConnectionsCache::load()
-            .map_err(|err| {
-                debug!("Failed to read cached connections: {:#}", err);
-                err
-            })
-            .ok()
-            .and_then(|c| c.into_connections(&config, now))
-    };
+    let mvg = Mvg::new()?;
 
-    let connections = match connections {
-        Some(c) => c,
-        None => {
-            debug!("Cache invalidated, fetching routes");
-            let mvg = Mvg::new()?;
+    let cache = args
+        .load_cache()
+        .update_config(config)
+        .evict_outdated_connections(now)
+        .refresh_empty::<anyhow::Error, _>(|desired| {
+            debug!(
+                "Updating results for desired connection from {} to {}",
+                desired.start, desired.destination
+            );
+            let desired_departure_time = now + desired.walk_to_start();
             let start = mvg
-                .find_unambiguous_station_by_name(&config.start)
-                .with_context(|| format!("Failed to find station {}", &config.start))?;
+                .find_unambiguous_station_by_name(&desired.start)
+                .with_context(|| format!("Failed to find station {}", &desired.start))?;
             let destination = mvg
-                .find_unambiguous_station_by_name(&config.destination)
-                .with_context(|| format!("Failed to find station {}", &config.destination))?;
-            let connections = mvg
-                .get_connections(&start.id, &destination.id, desired_departure_time)?
-                .into_iter()
-                .map(|c| c.with_walk_to_start(walk_time_to_start))
-                .collect();
-            let cache = ConnectionsCache {
-                config,
-                connections,
-            };
-            if let Err(error) = cache.save() {
-                warn!("Failed to cache routes: {:#}", error);
-            } else {
-                debug!("Cached routes")
-            }
-            cache.connections
-        }
-    };
+                .find_unambiguous_station_by_name(&desired.destination)
+                .with_context(|| format!("Failed to find station {}", &desired.destination))?;
+            let connections =
+                mvg.get_connections(&start.id, &destination.id, desired_departure_time)?;
+            Ok(connections)
+        })?;
 
-    for connection in connections.iter().take(args.number_of_connections as usize) {
-        println!("{}", display_with_walk_time(connection, local_offset));
+    debug!("Saving cache");
+    if let Err(error) = cache.save() {
+        warn!("Failed to save cached connections: {:#}", error);
+    }
+
+    for (walk_to_start, connection) in cache
+        .all_connections()
+        .iter()
+        .take(args.number_of_connections as usize)
+    {
+        println!(
+            "{}",
+            display_with_walk_time(connection, *walk_to_start, local_offset)
+        );
     }
 
     Ok(())

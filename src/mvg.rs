@@ -16,12 +16,10 @@ pub struct Station {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(tag = "type", rename_all = "lowercase")]
 pub enum Location {
-    #[serde(rename = "station")]
     Station(Station),
-    #[serde(other)]
-    Other,
+    // TODO: There are likely other location variants as well
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -122,9 +120,8 @@ impl Mvg {
         let mut stations: Vec<Station> = self
             .get_location_by_name(name.as_ref())?
             .into_iter()
-            .filter_map(|loc| match loc {
-                Location::Station(station) => Some(station),
-                _ => None,
+            .map(|loc| match loc {
+                Location::Station(station) => station,
             })
             .collect();
         if 1 < stations.len() {

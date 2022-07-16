@@ -9,14 +9,16 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use log::debug;
 use serde::{Deserialize, Serialize};
-use time::OffsetDateTime;
+use time::{Duration, OffsetDateTime};
 
-use crate::{config::Config, connection::CompleteConnection};
+use crate::{
+    config::{Config, DesiredConnection},
+    mvg::Connection,
+};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ConnectionsCache {
-    pub config: Config,
-    pub connections: Vec<CompleteConnection>,
+    pub connections: Vec<(DesiredConnection, Vec<Connection>)>,
 }
 
 impl ConnectionsCache {
@@ -52,89 +54,94 @@ impl ConnectionsCache {
             .with_context(|| format!("Failed to write cache to {}", cache_file.display()))
     }
 
-    fn start_evict(self) -> EvictableCache {
-        EvictableCache::Cached(self)
-    }
-
-    /// Extract valid connections from the cache.
+    /// Update the cache with the config `config`.
     ///
-    /// Evict the cache if it doesn't match `config`, filter all routes starting
-    /// before `now` and then check if there are sufficiently many routes
-    /// remaining.
-    pub fn into_connections(
-        self,
-        config: &Config,
-        now: OffsetDateTime,
-    ) -> Option<Vec<CompleteConnection>> {
-        self.start_evict()
-            .evict_mismatched_config(config)
-            .evict_outdated_routes(now)
-            .evict_empty()
-            .into_connections()
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum EvictableCache {
-    Evicted,
-    Cached(ConnectionsCache),
-}
-
-impl EvictableCache {
-    fn do_evict<F>(self, f: F) -> Self
-    where
-        F: Fn(ConnectionsCache) -> EvictableCache,
-    {
-        match self {
-            Self::Evicted => Self::Evicted,
-            Self::Cached(cache) => f(cache),
+    /// If the desired connections in `config` do not match the cached ones,
+    /// discard the entire cache and use the desired connections from `config`.
+    ///
+    /// Otherwise return this cache as is.
+    pub fn update_config(self, config: Config) -> Self {
+        if config
+            .connections
+            .iter()
+            .eq(self.connections.iter().map(|c| &c.0))
+        {
+            self
+        } else {
+            debug!("Discarding cached connections, configuration changed");
+            Self {
+                connections: config
+                    .connections
+                    .into_iter()
+                    .map(|c| (c, Vec::new()))
+                    .collect(),
+            }
         }
     }
 
-    /// Evict the cache if the cached config doesn't match `config`.
-    fn evict_mismatched_config(self, config: &Config) -> Self {
-        self.do_evict(|cache| {
-            if &cache.config == config {
-                debug!("Cached config matches current config");
-                Self::Cached(cache)
-            } else {
-                debug!("Evicting cache, config does not match");
-                Self::Evicted
-            }
-        })
-    }
-
-    /// Remove all routes which start after `now`.
-    fn evict_outdated_routes(self, now: OffsetDateTime) -> Self {
-        self.do_evict(|cache| {
-            let connections = cache
-                .connections
-                .into_iter()
-                .filter(|c| now <= c.start_to_walk())
-                .collect();
-            Self::Cached(ConnectionsCache {
-                connections,
-                config: cache.config,
+    /// Remove all connections which begin before the given current time.
+    ///
+    /// If this removes all connections for a desired connection leave the
+    /// desired connection in place with an empty list of connections, which
+    /// lets the caller fetch new connections for the desired connection.
+    pub fn evict_outdated_connections(self, now: OffsetDateTime) -> Self {
+        let connections = self
+            .connections
+            .into_iter()
+            .map(|(desired, connections)| {
+                let connections = if connections.is_empty() {
+                    connections
+                } else {
+                    debug!(
+                        "Evicting outdated connections for desired connection from {} to {}",
+                        desired.start, desired.destination
+                    );
+                    let min_departure = now + desired.walk_to_start();
+                    connections
+                        .into_iter()
+                        .filter(|c| min_departure <= c.departure)
+                        .collect()
+                };
+                (desired, connections)
             })
-        })
+            .collect();
+        Self { connections }
     }
 
-    /// Evict the cache if it has no connections.
-    fn evict_empty(self) -> Self {
-        self.do_evict(|cache| {
-            if cache.connections.is_empty() {
-                Self::Evicted
-            } else {
-                Self::Cached(cache)
-            }
-        })
+    /// Refresh desired connections with the given `update` function.
+    ///
+    /// Call `update` for every desired connection with an empty list of connections.
+    pub fn refresh_empty<E, F>(self, update: F) -> std::result::Result<Self, E>
+    where
+        F: Fn(&DesiredConnection) -> std::result::Result<Vec<Connection>, E>,
+    {
+        let connections = self
+            .connections
+            .into_iter()
+            .map(|(desired, connections)| {
+                if connections.is_empty() {
+                    debug!("Desired connection from {} to {} has no connections, refreshing connections", desired.start, desired.destination);
+                    update(&desired).map(|cs| (desired, cs))
+                } else {
+                    Ok((desired, connections))
+                }
+            })
+            .collect::<Result<_, E>>()?;
+        Ok(Self { connections })
     }
 
-    /// Extract connections from this cache.
-    fn into_connections(self) -> Option<Vec<CompleteConnection>> {
-        match self {
-            Self::Evicted => None,
-            Self::Cached(cache) => Some(cache.connections),
-        }
+    /// Return all connections for all desired routes, ordered ascending by start time, with the walk distance to start.
+    pub fn all_connections(&self) -> Vec<(Duration, &Connection)> {
+        let mut connections = self
+            .connections
+            .iter()
+            .flat_map(|(desired, connections)| {
+                connections
+                    .iter()
+                    .map(|connection| (desired.walk_to_start(), connection))
+            })
+            .collect::<Vec<_>>();
+        connections.sort_by_key(|(walk_to_start, c)| c.departure - *walk_to_start);
+        connections
     }
 }

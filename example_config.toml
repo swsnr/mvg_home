@@ -1,3 +1,9 @@
+[[connections]]
 start = "Hauptbahnhof"
 destination = "Ostbahnhof München"
 walk_to_start_in_minutes = 10
+
+[[connections]]
+start = "Karlsplatz (Stachus)"
+destination = "Ostbahnhof München"
+walk_to_start_in_minutes = 5
