@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use time::{Duration, OffsetDateTime};
-use tracing::debug;
+use tracing::{debug, instrument};
 
 use crate::{
     config::{Config, DesiredConnection},
@@ -60,6 +60,7 @@ impl ConnectionsCache {
     /// discard the entire cache and use the desired connections from `config`.
     ///
     /// Otherwise return this cache as is.
+    #[instrument(skip_all)]
     pub fn update_config(self, config: Config) -> Self {
         if config
             .connections
@@ -84,6 +85,7 @@ impl ConnectionsCache {
     /// If this removes all connections for a desired connection leave the
     /// desired connection in place with an empty list of connections, which
     /// lets the caller fetch new connections for the desired connection.
+    #[instrument(skip(self), fields(now=%now))]
     pub fn evict_outdated_connections(self, now: OffsetDateTime) -> Self {
         let connections = self
             .connections
@@ -111,6 +113,7 @@ impl ConnectionsCache {
     /// Refresh desired connections with the given `update` function.
     ///
     /// Call `update` for every desired connection with an empty list of connections.
+    #[instrument(skip_all)]
     pub fn refresh_empty<E, F>(self, update: F) -> std::result::Result<Self, E>
     where
         F: Fn(&DesiredConnection) -> std::result::Result<Vec<Connection>, E>,

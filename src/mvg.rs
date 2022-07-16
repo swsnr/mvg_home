@@ -8,6 +8,7 @@ use anyhow::{anyhow, Context, Result};
 use reqwest::{blocking::Client, Proxy, Url};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
+use tracing::instrument;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Station {
@@ -98,6 +99,7 @@ impl Mvg {
         })
     }
 
+    #[instrument(skip(self), fields(name=name.as_ref()))]
     pub fn get_location_by_name<S: AsRef<str>>(&self, name: S) -> Result<Vec<Location>> {
         let url = Url::parse_with_params(
             "https://www.mvg.de/api/fahrinfo/location/queryWeb",
@@ -117,6 +119,7 @@ impl Mvg {
             .with_context(|| format!("Failed to parse response from {}", url))
     }
 
+    #[instrument(skip(self), fields(name=name.as_ref()))]
     pub fn find_unambiguous_station_by_name<S: AsRef<str>>(&self, name: S) -> Result<Station> {
         let mut stations: Vec<Station> = self
             .get_location_by_name(name.as_ref())?
@@ -149,6 +152,7 @@ impl Mvg {
         }
     }
 
+    #[instrument(skip(self), fields(from_station_id=from_station_id.as_ref(), to_station_id=to_station_id.as_ref()))]
     pub fn get_connections<S: AsRef<str>, T: AsRef<str>>(
         &self,
         from_station_id: S,
