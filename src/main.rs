@@ -117,12 +117,8 @@ fn process_args(args: Arguments) -> Result<()> {
                 desired.start, desired.destination
             );
             let desired_departure_time = now + desired.walk_to_start();
-            let start = mvg
-                .find_unambiguous_station_by_name(&desired.start)
-                .with_context(|| format!("Failed to find station {}", &desired.start))?;
-            let destination = mvg
-                .find_unambiguous_station_by_name(&desired.destination)
-                .with_context(|| format!("Failed to find station {}", &desired.destination))?;
+            let start = mvg.find_unambiguous_station_by_name(&desired.start)?;
+            let destination = mvg.find_unambiguous_station_by_name(&desired.destination)?;
             let connections =
                 mvg.get_connections(&start.id, &destination.id, desired_departure_time)?;
             Ok(connections)
