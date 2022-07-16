@@ -86,6 +86,8 @@ pub struct Mvg {
     client: Client,
 }
 
+// TODO: Make this client asynchronous and fetch all missing routes in parallel!
+// TODO: Before doing this, migrate logging to tracing so as to properly log across future boundaries
 impl Mvg {
     pub fn new() -> Result<Self> {
         let proxy = system_proxy::default();

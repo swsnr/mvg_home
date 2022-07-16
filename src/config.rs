@@ -24,7 +24,9 @@ pub struct DesiredConnection {
     /// The name of the destination station.
     pub destination: String,
     /// How much time to account for to walk to the start station.
+    // TODO: Directly deserialize into a Duration and rename
     pub walk_to_start_in_minutes: u8,
+    // TODO: Add optional means to filter first connection part by label (e.g. exclude certain unreliable busses)
 }
 
 impl DesiredConnection {
