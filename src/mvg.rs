@@ -134,6 +134,7 @@ impl Mvg {
 
     #[instrument(skip(self), fields(name=name.as_ref()))]
     pub async fn get_location_by_name<S: AsRef<str>>(&self, name: S) -> Result<Vec<Location>> {
+        debug!("Finding locations for {}", name.as_ref());
         let url = Url::parse_with_params(
             "https://www.mvg.de/api/fahrinfo/location/queryWeb",
             &[("q", name.as_ref())],
@@ -150,7 +151,11 @@ impl Mvg {
         response
             .json::<LocationsResponse>()
             .await
-            .map(|response| response.locations)
+            .map(|response| {
+                let ls = response.locations;
+                debug!("Received {} locations for {}", ls.len(), name.as_ref());
+                ls
+            })
             .with_context(|| format!("Failed to parse response from {}", url))
     }
 
@@ -159,6 +164,7 @@ impl Mvg {
         &self,
         name: S,
     ) -> Result<Station> {
+        debug!("Looking for single station with name {}", name.as_ref());
         let mut stations: Vec<Station> = self
             .get_location_by_name(name.as_ref())
             .await?
@@ -193,19 +199,32 @@ impl Mvg {
                 )),
             }
         } else {
-            stations
+            let station = stations
                 .pop()
-                .with_context(|| format!("No matches for {}", name.as_ref()))
+                .with_context(|| format!("No matches for {}", name.as_ref()))?;
+            debug!(
+                "Found station with name {} and id {} for {}",
+                station.name,
+                station.id,
+                name.as_ref()
+            );
+            Ok(station)
         }
     }
 
-    #[instrument(skip(self), fields(from_station_id=from_station_id.as_ref(), to_station_id=to_station_id.as_ref()))]
+    #[instrument(skip(self), fields(from_station_id=from_station_id.as_ref(), to_station_id=to_station_id.as_ref(), start=%start))]
     pub async fn get_connections<S: AsRef<str>, T: AsRef<str>>(
         &self,
         from_station_id: S,
         to_station_id: T,
         start: OffsetDateTime,
     ) -> Result<Vec<Connection>> {
+        debug!(
+            "Fetching connections between station ID {} and station ID {} starting at {}",
+            from_station_id.as_ref(),
+            to_station_id.as_ref(),
+            start
+        );
         let url = Url::parse_with_params(
             "https://www.mvg.de/api/fahrinfo/routing",
             &[
@@ -224,7 +243,11 @@ impl Mvg {
         response
             .json::<ConnectionsResponse>()
             .await
-            .map(|response| response.connection_list)
+            .map(|response| {
+                let connections = response.connection_list;
+                debug!("Received {} connections", connections.len());
+                connections
+            })
             .with_context(|| format!("Failed to decode response from {}", url))
     }
 }
