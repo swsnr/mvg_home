@@ -9,7 +9,6 @@
 //! MVG connections for the way home.
 
 use std::fmt::{Display, Formatter};
-use std::ops::Not;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
@@ -103,38 +102,22 @@ fn process_args(args: Arguments) -> Result<()> {
     let now = OffsetDateTime::now_utc();
     let desired_departure_time = now + walk_time_to_start;
 
-    let cache = args
-        .discard_cache
-        .not()
-        .then(|| {
-            debug!("Using cache");
-            ConnectionsCache::load()
-                .map_err(|err| {
-                    debug!("Failed to read cached connections: {:#}", err);
-                    err
-                })
-                .ok()
-        })
-        .flatten()
-        // Discard cache if config doesn't match
-        .filter(|cache| cache.config == config)
-        .map(|cache| {
-            debug!("Cached passed config check");
-            cache
-        })
-        // Discard cache if it's empty or if the first connection departs before the desired departure time,
-        // that is if the connection cache's outdated.
-        .filter(|cache| {
-            cache
-                .connections
-                .first()
-                .map_or(false, |c| now < c.start_to_walk())
-        });
-    let connections = match cache {
-        Some(ConnectionsCache { connections, .. }) => {
-            debug!("Using cached connections");
-            connections
-        }
+    let connections: Option<Vec<CompleteConnection>> = if args.discard_cache {
+        debug!("Cache discarded per command line arguments");
+        None
+    } else {
+        debug!("Using cache");
+        ConnectionsCache::load()
+            .map_err(|err| {
+                debug!("Failed to read cached connections: {:#}", err);
+                err
+            })
+            .ok()
+            .and_then(|c| c.into_connections(&config, now))
+    };
+
+    let connections = match connections {
+        Some(c) => c,
         None => {
             debug!("Cache invalidated, fetching routes");
             let mvg = Mvg::new()?;

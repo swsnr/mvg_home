@@ -7,7 +7,9 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+use log::debug;
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 
 use crate::{config::Config, connection::CompleteConnection};
 
@@ -48,5 +50,91 @@ impl ConnectionsCache {
             .with_context(|| "Failed to serialize connection cache".to_string())?;
         std::fs::write(&cache_file, contents)
             .with_context(|| format!("Failed to write cache to {}", cache_file.display()))
+    }
+
+    fn start_evict(self) -> EvictableCache {
+        EvictableCache::Cached(self)
+    }
+
+    /// Extract valid connections from the cache.
+    ///
+    /// Evict the cache if it doesn't match `config`, filter all routes starting
+    /// before `now` and then check if there are sufficiently many routes
+    /// remaining.
+    pub fn into_connections(
+        self,
+        config: &Config,
+        now: OffsetDateTime,
+    ) -> Option<Vec<CompleteConnection>> {
+        self.start_evict()
+            .evict_mismatched_config(config)
+            .evict_outdated_routes(now)
+            .evict_empty()
+            .into_connections()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum EvictableCache {
+    Evicted,
+    Cached(ConnectionsCache),
+}
+
+impl EvictableCache {
+    fn do_evict<F>(self, f: F) -> Self
+    where
+        F: Fn(ConnectionsCache) -> EvictableCache,
+    {
+        match self {
+            Self::Evicted => Self::Evicted,
+            Self::Cached(cache) => f(cache),
+        }
+    }
+
+    /// Evict the cache if the cached config doesn't match `config`.
+    fn evict_mismatched_config(self, config: &Config) -> Self {
+        self.do_evict(|cache| {
+            if &cache.config == config {
+                debug!("Cached config matches current config");
+                Self::Cached(cache)
+            } else {
+                debug!("Evicting cache, config does not match");
+                Self::Evicted
+            }
+        })
+    }
+
+    /// Remove all routes which start after `now`.
+    fn evict_outdated_routes(self, now: OffsetDateTime) -> Self {
+        self.do_evict(|cache| {
+            let connections = cache
+                .connections
+                .into_iter()
+                .filter(|c| now <= c.start_to_walk())
+                .collect();
+            Self::Cached(ConnectionsCache {
+                connections,
+                config: cache.config,
+            })
+        })
+    }
+
+    /// Evict the cache if it has no connections.
+    fn evict_empty(self) -> Self {
+        self.do_evict(|cache| {
+            if cache.connections.is_empty() {
+                Self::Evicted
+            } else {
+                Self::Cached(cache)
+            }
+        })
+    }
+
+    /// Extract connections from this cache.
+    fn into_connections(self) -> Option<Vec<CompleteConnection>> {
+        match self {
+            Self::Evicted => None,
+            Self::Cached(cache) => Some(cache.connections),
+        }
     }
 }
