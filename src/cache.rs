@@ -120,6 +120,33 @@ impl ConnectionsCache {
         Self { connections }
     }
 
+    /// Remove connections if there are too few connections.
+    ///
+    /// If there are less connections per desired connection than the given
+    /// `limit`, remove all connections in order to fetch new connections.
+    pub fn evict_too_few_connections(self, limit: usize) -> Self {
+        let connections = self
+            .connections
+            .into_iter()
+            .map(|(desired, connections)| {
+                let connections = if connections.is_empty() || limit <= connections.len() {
+                    connections
+                } else {
+                    debug!(
+                        "Only {} (< {}) connections left for desired connection from {} to {}",
+                        connections.len(),
+                        limit,
+                        desired.start,
+                        desired.destination,
+                    );
+                    Vec::new()
+                };
+                (desired, connections)
+            })
+            .collect();
+        Self { connections }
+    }
+
     /// Refresh desired connections with the given `update` function.
     ///
     /// Call `update` for every desired connection with an empty list of connections.
