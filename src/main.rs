@@ -44,7 +44,7 @@ impl<'a> Display for ConnectionDisplay<'a> {
 
         write!(
             f,
-            "🚆 In {} min, dep. {} arr. {}, from {}",
+            "🚆 In {: >2} min, dep. {} arr. {}, from {}",
             ((start_in.whole_seconds() as f64) / 60.0).ceil(),
             departure.time().format(hh_mm).unwrap(),
             arrival.time().format(hh_mm).unwrap(),
