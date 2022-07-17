@@ -68,9 +68,9 @@ pub struct ConnectionPart {
     pub from: Location,
     pub to: Location,
     // The label of this connection, e.g. S4
-    pub label: String,
+    pub label: Option<String>,
     /// The type of transporation, e.g. SBAHN
-    pub product: String,
+    pub product: Option<String>,
 }
 
 mod unix_millis {

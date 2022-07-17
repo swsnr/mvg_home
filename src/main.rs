@@ -51,12 +51,10 @@ impl<'a> Display for ConnectionDisplay<'a> {
             self.connection.from.human_readable(),
         )?;
         if 2 <= self.connection.connection_parts.len() {
-            write!(
-                f,
-                " via {} with {}",
-                first_part.to.human_readable(),
-                first_part.label
-            )
+            match &first_part.label {
+                Some(label) => write!(f, " via {} with {}", first_part.to.human_readable(), label),
+                None => write!(f, " via {}", first_part.to.human_readable(),),
+            }
         } else {
             Ok(())
         }
