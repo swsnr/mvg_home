@@ -138,7 +138,9 @@ fn process_args(args: Arguments) -> Result<()> {
                     .await?;
                 Ok((desired, connections))
             }),
-        )?;
+        )?
+        // Evict unreachable connections again, in case the MVG API returned nonsense
+        .evict_unreachable_connections(now);
 
     debug!("Saving cache");
     if let Err(error) = new_cache.save() {
