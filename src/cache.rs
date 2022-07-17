@@ -10,7 +10,8 @@ use anyhow::{Context, Result};
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use time::{Duration, OffsetDateTime};
-use tracing::{debug, info_span, instrument, Instrument};
+use tracing::{debug, info_span, instrument};
+use tracing_futures::Instrument;
 
 use crate::{
     config::{Config, DesiredConnection},

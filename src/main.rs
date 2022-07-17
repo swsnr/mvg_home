@@ -14,7 +14,8 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use time::macros::format_description;
 use time::{Duration, OffsetDateTime, UtcOffset};
-use tracing::{debug, warn};
+use tracing::{debug, info_span, warn};
+use tracing_futures::*;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 mod cache;
@@ -112,30 +113,33 @@ fn process_args(args: Arguments) -> Result<()> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .unwrap();
+        .unwrap()
+        .instrument(info_span!("main::rt"));
 
     let cleared_cache = args
         .load_cache()
         .update_config(config)
         .evict_outdated_connections(now);
 
-    let new_cache = rt.block_on(cleared_cache.refresh_empty::<anyhow::Error, _, _>(
-        |desired| async {
-            debug!(
-                "Updating results for desired connection from {} to {}",
-                desired.start, desired.destination
-            );
-            let desired_departure_time = now + desired.walk_to_start();
-            let start = mvg.find_unambiguous_station_by_name(&desired.start).await?;
-            let destination = mvg
-                .find_unambiguous_station_by_name(&desired.destination)
-                .await?;
-            let connections = mvg
-                .get_connections(&start.id, &destination.id, desired_departure_time)
-                .await?;
-            Ok((desired, connections))
-        },
-    ))?;
+    let new_cache = rt
+        .inner()
+        .block_on(
+            cleared_cache.refresh_empty::<anyhow::Error, _, _>(|desired| async {
+                debug!(
+                    "Updating results for desired connection from {} to {}",
+                    desired.start, desired.destination
+                );
+                let desired_departure_time = now + desired.walk_to_start();
+                let start = mvg.find_unambiguous_station_by_name(&desired.start).await?;
+                let destination = mvg
+                    .find_unambiguous_station_by_name(&desired.destination)
+                    .await?;
+                let connections = mvg
+                    .get_connections(&start.id, &destination.id, desired_departure_time)
+                    .await?;
+                Ok((desired, connections))
+            }),
+        )?;
 
     debug!("Saving cache");
     if let Err(error) = new_cache.save() {
