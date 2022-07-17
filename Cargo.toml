@@ -31,3 +31,4 @@ tracing-subscriber = { version = "0.3.14", features = ["env-filter"] }
 glib = { version = "0.15.7", features = ["log"] }
 system_proxy = "0.1.0"
 tokio = { version = "1.20.0", features = ["rt"] }
+humantime = "2.1.0"

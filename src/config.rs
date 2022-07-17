@@ -16,6 +16,49 @@ pub struct Config {
     pub connections: Vec<DesiredConnection>,
 }
 
+mod human_readable_duration {
+    use serde::de::Unexpected;
+    use serde::{de, Deserialize};
+    use serde::{ser, Serialize};
+    use serde::{Deserializer, Serializer};
+    use time::Duration;
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Duration, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        if deserializer.is_human_readable() {
+            let value = String::deserialize(deserializer)?;
+            ::humantime::parse_duration(&value)
+                .map_err(|err| {
+                    de::Error::invalid_value(Unexpected::Str(&value), &format!("{}", err).as_str())
+                })?
+                .try_into()
+                .map_err(|err| {
+                    de::Error::invalid_value(Unexpected::Str(&value), &format!("{}", err).as_str())
+                })
+        } else {
+            Duration::deserialize(deserializer)
+        }
+    }
+
+    pub fn serialize<S>(value: &Duration, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        if serializer.is_human_readable() {
+            let std_duration = (*value)
+                .try_into()
+                .map_err(|error| ser::Error::custom(format!("Invalid range: {}", error)))?;
+
+            let formatted = ::humantime::format_duration(std_duration);
+            serializer.serialize_str(&formatted.to_string())
+        } else {
+            value.serialize(serializer)
+        }
+    }
+}
+
 /// A desired connection in the config file
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DesiredConnection {
@@ -24,15 +67,9 @@ pub struct DesiredConnection {
     /// The name of the destination station.
     pub destination: String,
     /// How much time to account for to walk to the start station.
-    // TODO: Directly deserialize into a Duration and rename
-    pub walk_to_start_in_minutes: u8,
+    #[serde(with = "human_readable_duration")]
+    pub walk_to_start: Duration,
     // TODO: Add optional means to filter first connection part by label (e.g. exclude certain unreliable busses)
-}
-
-impl DesiredConnection {
-    pub fn walk_to_start(&self) -> Duration {
-        Duration::minutes(self.walk_to_start_in_minutes as i64)
-    }
 }
 
 impl Config {

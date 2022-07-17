@@ -104,7 +104,7 @@ impl ConnectionsCache {
                         .filter(|c| now <= c.departure)
                         // We still must have at least half of time time to walk to connection start, or we'll definitely
                         // miss the train.
-                        .filter(|c| now <= (c.departure - (desired.walk_to_start() / 2)))
+                        .filter(|c| now <= (c.departure - (desired.walk_to_start / 2)))
                         .collect::<Vec<_>>();
                     debug!(
                         "Evicted {} unreachable connections for desired connection from {} to {}",
@@ -186,7 +186,7 @@ impl ConnectionsCache {
             .flat_map(|(desired, connections)| {
                 connections
                     .iter()
-                    .map(|connection| (desired.walk_to_start(), connection))
+                    .map(|connection| (desired.walk_to_start, connection))
             })
             .collect::<Vec<_>>();
         connections.sort_by_key(|(walk_to_start, c)| c.departure - *walk_to_start);

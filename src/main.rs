@@ -128,7 +128,7 @@ fn process_args(args: Arguments) -> Result<()> {
                     "Updating results for desired connection from {} to {}",
                     desired.start, desired.destination
                 );
-                let desired_departure_time = now + desired.walk_to_start();
+                let desired_departure_time = now + desired.walk_to_start;
                 let start = mvg.find_unambiguous_station_by_name(&desired.start).await?;
                 let destination = mvg
                     .find_unambiguous_station_by_name(&desired.destination)
