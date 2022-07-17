@@ -117,7 +117,7 @@ fn process_args(args: Arguments) -> Result<()> {
     let cleared_cache = args
         .load_cache()
         .update_config(config)
-        .evict_outdated_connections(now);
+        .evict_unreachable_connections(now);
 
     let new_cache = rt
         .inner()

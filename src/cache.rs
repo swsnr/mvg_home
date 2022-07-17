@@ -82,13 +82,13 @@ impl ConnectionsCache {
         }
     }
 
-    /// Remove all connections which begin before the given current time.
+    /// Remove all connections which can't be reached anymore.
     ///
-    /// If this removes all connections for a desired connection leave the
-    /// desired connection in place with an empty list of connections, which
-    /// lets the caller fetch new connections for the desired connection.
+    /// Remove a connection if its actual start is before the given current
+    /// time, or if half of the required time to walk to the start is already
+    /// past.
     #[instrument(skip(self), fields(now=%now))]
-    pub fn evict_outdated_connections(self, now: OffsetDateTime) -> Self {
+    pub fn evict_unreachable_connections(self, now: OffsetDateTime) -> Self {
         let connections = self
             .connections
             .into_iter()
@@ -96,15 +96,23 @@ impl ConnectionsCache {
                 let connections = if connections.is_empty() {
                     connections
                 } else {
-                    debug!(
-                        "Evicting outdated connections for desired connection from {} to {}",
-                        desired.start, desired.destination
-                    );
-                    let min_departure = now + desired.walk_to_start();
-                    connections
+                    let len_before = connections.len();
+                    let remaining_connections = connections
                         .into_iter()
-                        .filter(|c| min_departure <= c.departure)
-                        .collect()
+                        // Connections must start strictly after the current time; we can get a train which already
+                        // left the station.
+                        .filter(|c| now <= c.departure)
+                        // We still must have at least half of time time to walk to connection start, or we'll definitely
+                        // miss the train.
+                        .filter(|c| now <= (c.departure - (desired.walk_to_start() / 2)))
+                        .collect::<Vec<_>>();
+                    debug!(
+                        "Evicted {} unreachable connections for desired connection from {} to {}",
+                        len_before - remaining_connections.len(),
+                        desired.start,
+                        desired.destination
+                    );
+                    remaining_connections
                 };
                 (desired, connections)
             })
