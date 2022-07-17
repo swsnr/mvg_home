@@ -30,6 +30,8 @@ cargo test --locked --all-targets ${CARGOFLAGS:-}
 
 # Check known vulnerabilities
 cargo audit
+# Check denied dependencies
+cargo deny check
 
 # Check shellscripts
 shellcheck scripts/*
