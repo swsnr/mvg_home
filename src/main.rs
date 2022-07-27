@@ -44,7 +44,7 @@ impl<'a> Display for ConnectionDisplay<'a> {
 
         write!(
             f,
-            "🚆 In {: >2} min, dep. {} arr. {}, from {}",
+            "🚆 In {: >2} min, ⚐{} ⚑{}, 🚏{}",
             ((start_in.whole_seconds() as f64) / 60.0).ceil(),
             departure.time().format(hh_mm).unwrap(),
             arrival.time().format(hh_mm).unwrap(),
@@ -53,7 +53,7 @@ impl<'a> Display for ConnectionDisplay<'a> {
         if 2 <= self.connection.connection_parts.len() {
             match &first_part.label {
                 Some(label) => write!(f, " via {} with {}", first_part.to.human_readable(), label),
-                None => write!(f, " via {}", first_part.to.human_readable(),),
+                None => write!(f, " via {}", first_part.to.human_readable()),
             }
         } else {
             Ok(())
