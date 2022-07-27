@@ -44,16 +44,32 @@ impl<'a> Display for ConnectionDisplay<'a> {
 
         write!(
             f,
-            "🚆 In {: >2} min, ⚐{} ⚑{}, 🚏{}",
+            "🏡 In {: >2} min, ⚐{} ⚑{}, 🚏{}",
             ((start_in.whole_seconds() as f64) / 60.0).ceil(),
             departure.time().format(hh_mm).unwrap(),
             arrival.time().format(hh_mm).unwrap(),
             self.connection.from.human_readable(),
         )?;
         if 2 <= self.connection.connection_parts.len() {
-            match &first_part.label {
-                Some(label) => write!(f, " via {} with {}", first_part.to.human_readable(), label),
-                None => write!(f, " via {}", first_part.to.human_readable()),
+            use ConnectionPartTransportation::*;
+            match &first_part.transportation {
+                Footway => write!(f, " → 🏃{}", first_part.to.human_readable()),
+                Transportation(transportation) => {
+                    let icon = match transportation.product {
+                        TransportationProduct::SBahn => "🚆",
+                        TransportationProduct::UBahn => "🚇",
+                        TransportationProduct::Tram => "🚊",
+                        TransportationProduct::Bus => "🚍",
+                        TransportationProduct::RegionalBus => "🚍",
+                    };
+                    write!(
+                        f,
+                        " → {} {}{}",
+                        first_part.to.human_readable(),
+                        icon,
+                        transportation.label
+                    )
+                }
             }
         } else {
             Ok(())
