@@ -50,23 +50,31 @@ impl<'a> Display for ConnectionDisplay<'a> {
             arrival.time().format(hh_mm).unwrap(),
             self.connection.from.human_readable(),
         )?;
-        if 2 <= self.connection.connection_parts.len() {
+        if self.connection.connection_parts.len() == 1 {
+            use ConnectionPartTransportation::*;
+            match &first_part.transportation {
+                // There's only one part in the connection so if it's a footway
+                //  we'll just walk to the destination
+                Footway => write!(f, " 🏃"),
+                Transportation(transportation) => {
+                    write!(
+                        f,
+                        " {}{}",
+                        transportation.product.icon(),
+                        transportation.label
+                    )
+                }
+            }
+        } else if 2 <= self.connection.connection_parts.len() {
             use ConnectionPartTransportation::*;
             match &first_part.transportation {
                 Footway => write!(f, " → 🏃{}", first_part.to.human_readable()),
                 Transportation(transportation) => {
-                    let icon = match transportation.product {
-                        TransportationProduct::SBahn => "🚆",
-                        TransportationProduct::UBahn => "🚇",
-                        TransportationProduct::Tram => "🚊",
-                        TransportationProduct::Bus => "🚍",
-                        TransportationProduct::RegionalBus => "🚍",
-                    };
                     write!(
                         f,
                         " → {} {}{}",
                         first_part.to.human_readable(),
-                        icon,
+                        transportation.product.icon(),
                         transportation.label
                     )
                 }

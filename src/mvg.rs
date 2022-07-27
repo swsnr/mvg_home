@@ -73,6 +73,18 @@ pub enum TransportationProduct {
     RegionalBus,
 }
 
+impl TransportationProduct {
+    pub fn icon(self) -> &'static str {
+        match self {
+            TransportationProduct::SBahn => "🚆",
+            TransportationProduct::UBahn => "🚇",
+            TransportationProduct::Tram => "🚊",
+            TransportationProduct::Bus => "🚍",
+            TransportationProduct::RegionalBus => "🚍",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Transportation {
     pub label: String,
