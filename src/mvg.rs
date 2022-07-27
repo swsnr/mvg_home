@@ -67,6 +67,9 @@ struct LocationsResponse {
 pub struct ConnectionPart {
     pub from: Location,
     pub to: Location,
+    // TODO: Handle TRANSPORTATION type versus FOOTWAY type
+    // Only in transportation type use label and product
+    // Expand product: REGIONAL_BUS, BUS, SBAHN, and check other products
     // The label of this connection, e.g. S4
     pub label: Option<String>,
     /// The type of transporation, e.g. SBAHN
