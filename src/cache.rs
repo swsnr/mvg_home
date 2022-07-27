@@ -219,6 +219,13 @@ impl ConnectionsCache {
             .flat_map(|(desired, connections)| {
                 connections
                     .iter()
+                    .filter(|c| {
+                        desired.ignore_starting_with.is_empty()
+                            || (!desired
+                                .ignore_starting_with
+                                .iter()
+                                .any(|l| c.starts_with_transportation_with_product_label(l)))
+                    })
                     .map(|connection| (desired.walk_to_start, connection))
             })
             .collect::<Vec<_>>();

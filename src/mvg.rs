@@ -109,9 +109,16 @@ pub struct ConnectionPart {
 
 impl ConnectionPart {
     pub fn is_footway(&self) -> bool {
-        match self.transportation {
+        match &self.transportation {
             ConnectionPartTransportation::Footway => true,
             ConnectionPartTransportation::Transportation(_) => false,
+        }
+    }
+
+    pub fn is_transportation_with_product_label<S: AsRef<str>>(&self, label: S) -> bool {
+        match &self.transportation {
+            ConnectionPartTransportation::Footway => false,
+            ConnectionPartTransportation::Transportation(t) => t.label == label.as_ref(),
         }
     }
 }
@@ -159,6 +166,13 @@ impl Connection {
         match self.connection_parts.get(0) {
             None => false,
             Some(part) => part.is_footway(),
+        }
+    }
+
+    pub fn starts_with_transportation_with_product_label<S: AsRef<str>>(&self, label: S) -> bool {
+        match self.connection_parts.get(0) {
+            None => false,
+            Some(part) => part.is_transportation_with_product_label(label),
         }
     }
 }

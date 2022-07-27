@@ -2,6 +2,7 @@
 start = "Hauptbahnhof"
 destination = "Ostbahnhof München"
 walk_to_start = "10min"
+ignore_starting_with = ["U5"]
 
 [[connections]]
 start = "Karlsplatz (Stachus)"

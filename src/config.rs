@@ -69,7 +69,9 @@ pub struct DesiredConnection {
     /// How much time to account for to walk to the start station.
     #[serde(with = "human_readable_duration")]
     pub walk_to_start: Duration,
-    // TODO: Add optional means to filter first connection part by label (e.g. exclude certain unreliable busses)
+    /// A list of product labels (e.g. S2, 12, 947) to ignore
+    #[serde(default)]
+    pub ignore_starting_with: Vec<String>,
 }
 
 impl Config {
