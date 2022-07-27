@@ -82,6 +82,39 @@ impl ConnectionsCache {
         }
     }
 
+    /// Remove all connections which start with a footway.
+    ///
+    /// This tool already takes care of the way to the first station, so
+    /// anything that starts with walking somewhere doesn't help.
+    #[instrument(skip(self))]
+    pub fn evict_starts_with_footway(self) -> Self {
+        let connections = self
+            .connections
+            .into_iter()
+            .map(|(desired, connections)| {
+                let connections = if connections.is_empty() {
+                    connections
+                } else {
+                    let len_before = connections.len();
+                    let remaining_connections = connections
+                        .into_iter()
+                        // Remove everything that starts with a walk
+                        .filter(|c| !c.starts_with_footway())
+                        .collect::<Vec<_>>();
+                    debug!(
+                        "Evicted {} unreachable connections for desired connection from {} to {}",
+                        len_before - remaining_connections.len(),
+                        desired.start,
+                        desired.destination
+                    );
+                    remaining_connections
+                };
+                (desired, connections)
+            })
+            .collect();
+        Self { connections }
+    }
+
     /// Remove all connections which can't be reached anymore.
     ///
     /// Remove a connection if its actual start is before the given current

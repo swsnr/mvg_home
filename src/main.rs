@@ -156,7 +156,9 @@ fn process_args(args: Arguments) -> Result<()> {
             }),
         )?
         // Evict unreachable connections again, in case the MVG API returned nonsense
-        .evict_unreachable_connections(now);
+        .evict_unreachable_connections(now)
+        // And evict anything that starts with walking
+        .evict_starts_with_footway();
 
     debug!("Saving cache");
     if let Err(error) = new_cache.save() {

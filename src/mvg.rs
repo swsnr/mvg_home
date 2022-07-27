@@ -95,6 +95,15 @@ pub struct ConnectionPart {
     pub transportation: ConnectionPartTransportation,
 }
 
+impl ConnectionPart {
+    pub fn is_footway(&self) -> bool {
+        match self.transportation {
+            ConnectionPartTransportation::Footway => true,
+            ConnectionPartTransportation::Transportation(_) => false,
+        }
+    }
+}
+
 mod unix_millis {
     use serde::{
         de::{self, Unexpected},
@@ -131,6 +140,15 @@ pub struct Connection {
     pub arrival: OffsetDateTime,
     #[serde(rename = "connectionPartList")]
     pub connection_parts: Vec<ConnectionPart>,
+}
+
+impl Connection {
+    pub fn starts_with_footway(&self) -> bool {
+        match self.connection_parts.get(0) {
+            None => false,
+            Some(part) => part.is_footway(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
