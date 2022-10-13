@@ -17,6 +17,7 @@ allow = [
     "Apache-2.0 WITH LLVM-exception",
     "BSD-3-Clause",
     "MPL-2.0",
+    "Unicode-DFS-2016",
 ]
 deny = []
 # Deny all copyleft license except the ones above.
