@@ -12,6 +12,7 @@ use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+use clap::Parser;
 use time::macros::format_description;
 use time::{Duration, OffsetDateTime, UtcOffset};
 use tracing::{debug, info_span, warn};
@@ -97,16 +98,23 @@ fn display_with_walk_time(
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Parser)]
+#[command(author, version, about)]
 struct Arguments {
-    config_file: Option<PathBuf>,
-    number_of_connections: u16,
-    discard_cache: bool,
+    /// Use a different configuration file
+    #[arg(long, value_name = "FILE")]
+    config: Option<PathBuf>,
+    /// Number of connections to show
+    #[arg(short = 'n', long, default_value_t = 10, value_name = "N")]
+    connections: u16,
+    /// Get fresh connections
+    #[arg(long)]
+    fresh: bool,
 }
 
 impl Arguments {
     fn load_cache(&self) -> ConnectionsCache {
-        if self.discard_cache {
+        if self.fresh {
             debug!("Cache discarded per command line arguments");
             ConnectionsCache::default()
         } else {
@@ -122,7 +130,7 @@ impl Arguments {
 }
 
 fn process_args(args: Arguments) -> Result<()> {
-    let config = match &args.config_file {
+    let config = match &args.config {
         Some(file) => Config::from_file(file)?,
         None => Config::from_default_location()?,
     };
@@ -176,7 +184,7 @@ fn process_args(args: Arguments) -> Result<()> {
     for (walk_to_start, connection) in new_cache
         .all_connections()
         .iter()
-        .take(args.number_of_connections as usize)
+        .take(args.connections as usize)
     {
         println!(
             "{}",
@@ -199,45 +207,7 @@ fn main() {
     // And redirect glib to log and hence to tracing
     glib::log_set_default_handler(glib::rust_log_handler);
 
-    use clap::*;
-    let mut matches = command!()
-        .dont_collapse_args_in_usage(true)
-        .setting(AppSettings::DeriveDisplayOrder)
-        .term_width(80)
-        .arg(
-            Arg::new("config")
-                .long("config")
-                .takes_value(true)
-                .value_name("FILE")
-                .default_value("$XDG_CONFIG_HOME/de.swsnr.home/config.toml")
-                .value_parser(clap::value_parser!(PathBuf))
-                .help("Config file"),
-        )
-        .arg(
-            Arg::new("number_of_connections")
-                .short('n')
-                .long("connections")
-                .takes_value(true)
-                .value_name("N")
-                .default_value("10")
-                .value_parser(clap::value_parser!(u16))
-                .help("The number of connections to show"),
-        )
-        .arg(
-            Arg::new("fresh")
-                .long("fresh")
-                .help("Get fresh connections")
-                .action(clap::ArgAction::SetTrue),
-        )
-        .get_matches();
-    let args = Arguments {
-        config_file: match matches.value_source("config") {
-            None | Some(clap::ValueSource::DefaultValue) => None,
-            Some(_) => Some(matches.remove_one("config").unwrap()),
-        },
-        number_of_connections: matches.remove_one("number_of_connections").unwrap(),
-        discard_cache: matches.remove_one("fresh").unwrap(),
-    };
+    let args = Arguments::parse();
     if let Err(err) = process_args(args) {
         eprintln!("{:#}", err);
         std::process::exit(1);

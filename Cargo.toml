@@ -1,5 +1,6 @@
 [package]
 name = "home"
+description = "Commute homewards"
 version = "1.0.0"
 license = "MPL-2.0"
 authors = ["Sebastian Wiesner <sebastian@swsnr.de>"]
@@ -21,10 +22,7 @@ time = { version = "0.3.11", features = [
     "formatting",
     "serde",
 ] }
-clap = { version = "3.2.8", default-features = false, features = [
-    "std",
-    "cargo",
-] }
+clap = { version = "4.0.15", features = ["derive"] }
 futures = "0.3.21"
 flexbuffers = "2.0.0"
 tracing = "0.1.35"

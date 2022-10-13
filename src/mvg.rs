@@ -85,13 +85,13 @@ impl TransportationProduct {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Transportation {
     pub label: String,
     pub product: TransportationProduct,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "connectionPartType", rename_all = "UPPERCASE")]
 pub enum ConnectionPartTransportation {
     Footway,
