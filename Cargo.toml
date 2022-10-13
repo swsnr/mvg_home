@@ -27,7 +27,7 @@ clap = { version = "3.2.8", default-features = false, features = [
 ] }
 futures = "0.3.21"
 flexbuffers = "2.0.0"
-tracing = "0.1.35"
+tracing = "0.1.37"
 tracing-futures = "0.2.5"
 tracing-subscriber = { version = "0.3.14", features = ["env-filter"] }
 glib = { version = "0.15.7", features = ["log"] }
