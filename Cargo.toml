@@ -28,7 +28,7 @@ flexbuffers = "2.0.0"
 tracing = "0.1.35"
 tracing-futures = "0.2.5"
 tracing-subscriber = { version = "0.3.14", features = ["env-filter"] }
-glib = { version = "0.15.7", features = ["log"] }
+glib = { version = "0.16.2", features = ["log"] }
 system_proxy = "0.1.2"
 tokio = { version = "1.20.0", features = ["rt"] }
 humantime = "2.1.0"
