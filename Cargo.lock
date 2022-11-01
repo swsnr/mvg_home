@@ -1066,6 +1066,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "static_assertions"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
+
+[[package]]
 name = "strsim"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1097,13 +1103,14 @@ dependencies = [
 
 [[package]]
 name = "system_proxy"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "daab80e30d3c8b0cd5bf00187e2076e89f8ac4bf2d025b8ffe27b74815627d4e"
+checksum = "0432dbae4250f1092e8026e9a000d1c1a363f1942f761990508117f3057b62ab"
 dependencies = [
  "gio",
  "glib",
  "log",
+ "static_assertions",
  "url",
 ]
 
