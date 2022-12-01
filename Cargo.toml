@@ -4,8 +4,8 @@ description = "Commute homewards"
 version = "1.0.0"
 license = "MPL-2.0"
 authors = ["Sebastian Wiesner <sebastian@swsnr.de>"]
-homepage = "https://github.com/lunaryorn/mvg_home"
-repository = "https://github.com/lunaryorn/mvg_home.git"
+homepage = "https://github.com/swsnr/mvg_home"
+repository = "https://github.com/swsnr/mvg_home.git"
 edition = "2021"
 publish = false
 
