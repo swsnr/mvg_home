@@ -22,7 +22,7 @@ time = { version = "0.3.11", features = [
     "formatting",
     "serde",
 ] }
-clap = { version = "4.0.18", features = ["derive"] }
+clap = { version = "4.0.29", features = ["derive"] }
 futures = "0.3.25"
 flexbuffers = "2.0.0"
 tracing = "0.1.35"
