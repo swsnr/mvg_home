@@ -1226,9 +1226,9 @@ dependencies = [
 
 [[package]]
 name = "system_proxy"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0432dbae4250f1092e8026e9a000d1c1a363f1942f761990508117f3057b62ab"
+checksum = "3aa03edfd634cba4efa63612decb3162f1cb35e6f169e4be853f398c8df8e4da"
 dependencies = [
  "gio",
  "glib 0.15.12",
