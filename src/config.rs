@@ -76,13 +76,19 @@ pub struct DesiredConnection {
 
 impl Config {
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let contents = std::fs::read(path.as_ref()).with_context(|| {
+        let data = std::fs::read(path.as_ref()).with_context(|| {
             format!(
                 "Failed to read configuration file from {}",
                 path.as_ref().display()
             )
         })?;
-        toml::from_slice(&contents).with_context(|| {
+        let contents = std::str::from_utf8(&data).with_context(|| {
+            format!(
+                "Contents of configuration file {} are not valid UTF-8",
+                path.as_ref().display()
+            )
+        })?;
+        toml::from_str(&contents).with_context(|| {
             format!(
                 "Failed to parse configuration from {}",
                 path.as_ref().display()
