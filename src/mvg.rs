@@ -202,8 +202,8 @@ impl Mvg {
     pub async fn get_location_by_name<S: AsRef<str>>(&self, name: S) -> Result<Vec<Location>> {
         debug!("Finding locations for {}", name.as_ref());
         let url = Url::parse_with_params(
-            "https://www.mvg.de/api/fahrinfo/location/queryWeb",
-            &[("q", name.as_ref())],
+            "https://www.mvg.de/api/fib/v2/location",
+            &[("query", name.as_ref())],
         )?;
         let response = self
             .client
