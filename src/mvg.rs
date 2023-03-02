@@ -7,7 +7,7 @@
 use std::fmt::Display;
 
 use anyhow::{anyhow, Context, Result};
-use reqwest::{Client, Proxy, Url};
+use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 use tracing::{debug, instrument};
@@ -188,12 +188,40 @@ pub struct Mvg {
 }
 
 impl Mvg {
-    pub fn new() -> Result<Self> {
-        let proxy = system_proxy::default();
+    pub async fn new() -> Result<Self> {
+        let portal_resolver = system_proxy::unix::FreedesktopPortalProxyResolver::connect()
+            .await
+            .with_context(|| "Failed to connect to freedesktop proxy portal".to_string())?;
+        let env_proxies = system_proxy::env::from_curl_env();
+        let proxy = reqwest::Proxy::custom(move |url| {
+            let proxy = env_proxies.lookup(url).map(Clone::clone);
+            debug!("Environment provided proxy {:?} for {}", proxy, &url);
+            proxy.or_else(|| {
+                debug!("Environment HTTP proxy empty, checking desktop portal");
+                // Create a one-shot channel to bridge from the async proxy resolver to the synchronous
+                // proxy interface of reqwest.
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                let url_inner = url.clone();
+                let portal_resolver = portal_resolver.clone();
+                tokio::task::spawn(async move {
+                    let result = portal_resolver.lookup(&url_inner).await;
+                    tx.send(result).unwrap();
+                });
+                let proxy = tokio::task::block_in_place(|| rx.blocking_recv())
+                    .unwrap()
+                    .unwrap_or_else(|err| {
+                        eprintln!("Proxy lookup on portal failed: {}", err);
+                        None
+                    });
+                debug!("XDG desktop portal provided proxy {:?} for {}", proxy, &url);
+                proxy
+            })
+        });
+
         Ok(Self {
             client: reqwest::ClientBuilder::new()
                 .user_agent("home")
-                .proxy(Proxy::custom(move |url| proxy.for_url(url)))
+                .proxy(proxy)
                 .build()?,
         })
     }
@@ -323,9 +351,9 @@ mod tests {
     use crate::mvg::*;
     use pretty_assertions::assert_eq;
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn big_well_known_station() {
-        let mvg = Mvg::new().unwrap();
+        let mvg = Mvg::new().await.unwrap();
         let name = "Marienplatz";
         let locations = mvg.get_location_by_name(name).await.unwrap();
         assert!(1 < locations.len(), "Too few locations: {:?}", locations);
@@ -340,9 +368,9 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn small_rural_bus_stop() {
-        let mvg = Mvg::new().unwrap();
+        let mvg = Mvg::new().await.unwrap();
         let name = "Fuchswinkl";
         let locations = mvg.get_location_by_name("Fuchswinkl").await.unwrap();
         assert!(!locations.is_empty());

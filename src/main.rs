@@ -139,8 +139,7 @@ fn process_args(args: Arguments) -> Result<()> {
         .with_context(|| "Cannot determine current local timezone offset")?;
     let now = OffsetDateTime::now_utc();
 
-    let mvg = Mvg::new()?;
-    let rt = tokio::runtime::Builder::new_current_thread()
+    let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .unwrap()
@@ -156,6 +155,7 @@ fn process_args(args: Arguments) -> Result<()> {
         .inner()
         .block_on(
             cleared_cache.refresh_empty::<anyhow::Error, _, _>(|desired| async {
+                let mvg = Mvg::new().await?;
                 debug!(
                     "Updating results for desired connection from {} to {}",
                     desired.start, desired.destination
@@ -204,8 +204,6 @@ fn main() {
                 .unwrap(),
         )
         .init();
-    // And redirect glib to log and hence to tracing
-    glib::log_set_default_handler(glib::rust_log_handler);
 
     let args = Arguments::parse();
     if let Err(err) = process_args(args) {
