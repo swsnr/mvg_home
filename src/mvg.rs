@@ -317,3 +317,43 @@ impl Mvg {
             .with_context(|| format!("Failed to decode response from {}", url))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::mvg::*;
+    use pretty_assertions::assert_eq;
+
+    #[tokio::test]
+    async fn big_well_known_station() {
+        let mvg = Mvg::new().unwrap();
+        let name = "Marienplatz";
+        let locations = mvg.get_location_by_name(name).await.unwrap();
+        assert!(1 < locations.len(), "Too few locations: {:?}", locations);
+        if let Location::Station(station) = &locations[0] {
+            assert_eq!(station.name, name);
+            assert_eq!(
+                &mvg.find_unambiguous_station_by_name(name).await.unwrap(),
+                station
+            );
+        } else {
+            panic!("First location not a station: {:?}", &locations[0]);
+        }
+    }
+
+    #[tokio::test]
+    async fn small_rural_bus_stop() {
+        let mvg = Mvg::new().unwrap();
+        let name = "Fuchswinkl";
+        let locations = mvg.get_location_by_name("Fuchswinkl").await.unwrap();
+        assert!(!locations.is_empty());
+        if let Location::Station(station) = &locations[0] {
+            assert_eq!(station.name, "Fuchswinkl, Abzw.");
+            assert_eq!(
+                &mvg.find_unambiguous_station_by_name(name).await.unwrap(),
+                station
+            );
+        } else {
+            panic!("First location not a station: {:?}", &locations[0]);
+        }
+    }
+}
