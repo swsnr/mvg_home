@@ -88,7 +88,7 @@ impl Config {
                 path.as_ref().display()
             )
         })?;
-        toml::from_str(&contents).with_context(|| {
+        toml::from_str(contents).with_context(|| {
             format!(
                 "Failed to parse configuration from {}",
                 path.as_ref().display()
