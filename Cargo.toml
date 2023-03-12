@@ -10,24 +10,24 @@ edition = "2021"
 publish = false
 
 [dependencies]
-toml = "0.7.2"
-serde = { version = "1.0.152", features = ["derive"] }
+toml = { version = "0.7.2", default-features = false, features=["parse"] }
+serde = { version = "1.0.152", default-features = false, features = ["derive"] }
 dirs = "4.0.0"
-anyhow = "1.0.69"
-reqwest = { version = "0.11.14", features = ["json"] }
-url = "2.3.1"
-time = { version = "0.3.20", features = [
+anyhow = { version = "1.0.69", default-features = false, features = ["std"] }
+reqwest = { version = "0.11.14", default-features = false, features = ["default-tls", "json"] }
+# url = "2.3.1"
+time = { version = "0.3.20", default-features = false, features = [
     "local-offset",
     "macros",
     "formatting",
     "serde",
 ] }
-clap = { version = "4.1.8", features = ["derive"] }
-futures = "0.3.26"
+clap = { version = "4.1.8", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
+futures = { version = "0.3.26", default-features = false }
 flexbuffers = "2.0.0"
-tracing = "0.1.37"
-tracing-futures = "0.2.5"
-tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
+tracing = { version = "0.1.37", default-features = false }
+tracing-futures = { version = "0.2.5", default-features = false, features = ["std-future"] }
+tracing-subscriber = { version = "0.3.16", default-features = false, features = ["fmt", "ansi", "env-filter"] }
 # tokio: enable tokio runtime, since we're using tokio anyway
 # portal: enable freedesktop proxy portal resolver
 system_proxy = { version = "0.3.1", default-features = false, features = ["tokio", "portal"]}
