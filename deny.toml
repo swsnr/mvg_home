@@ -25,3 +25,9 @@ copyleft = "deny"
 allow-osi-fsf-free = "neither"
 default = "deny"
 confidence-threshold = 0.8
+
+[bans]
+deny = [
+  # We already use tokio, so we shouldn't have async-io here
+  { name = "async-io"},
+]
