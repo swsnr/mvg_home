@@ -10,11 +10,11 @@ edition = "2021"
 publish = false
 
 [dependencies]
-toml = { version = "0.7.2", default-features = false, features=["parse"] }
-serde = { version = "1.0.152", default-features = false, features = ["derive"] }
-dirs = "4.0.0"
-anyhow = { version = "1.0.69", default-features = false, features = ["std"] }
-reqwest = { version = "0.11.14", default-features = false, features = ["default-tls", "json"] }
+toml = { version = "0.7.3", default-features = false, features=["parse"] }
+serde = { version = "1.0.158", default-features = false, features = ["derive"] }
+dirs = "5.0.0"
+anyhow = { version = "1.0.70", default-features = false, features = ["std"] }
+reqwest = { version = "0.11.15", default-features = false, features = ["default-tls", "json"] }
 # url = "2.3.1"
 time = { version = "0.3.20", default-features = false, features = [
     "local-offset",
@@ -22,15 +22,15 @@ time = { version = "0.3.20", default-features = false, features = [
     "formatting",
     "serde",
 ] }
-clap = { version = "4.1.8", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
-futures = { version = "0.3.26", default-features = false }
+clap = { version = "4.1.13", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
+futures = { version = "0.3.27", default-features = false }
 flexbuffers = "2.0.0"
 tracing = { version = "0.1.37", default-features = false }
 tracing-futures = { version = "0.2.5", default-features = false, features = ["std-future"] }
 tracing-subscriber = { version = "0.3.16", default-features = false, features = ["fmt", "ansi", "env-filter"] }
 # tokio: enable tokio runtime, since we're using tokio anyway
 # portal: enable freedesktop proxy portal resolver
-system_proxy = { version = "0.3.1", default-features = false, features = ["tokio", "portal"]}
+system_proxy = { version = "0.3.2", default-features = false, features = ["tokio", "portal"]}
 # rt: provides the actual runtime
 # rt-multi-thread: for blocking inside async contexts, because request's proxy API is synchronous
 # sync: provides channels, which we need because the reqwest proxy API is synchronous
