@@ -10,7 +10,7 @@ use anyhow::{anyhow, Context, Result};
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
-use tracing::{debug, instrument};
+use tracing::{debug, instrument, trace};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Station {
@@ -233,6 +233,7 @@ impl Mvg {
             "https://www.mvg.de/api/fahrinfo/location/queryWeb",
             &[("q", name.as_ref())],
         )?;
+        trace!(%url, "Sending request");
         let response = self
             .client
             .get(url.clone())
@@ -327,6 +328,7 @@ impl Mvg {
                 ("time", &(start.unix_timestamp() * 1000).to_string()),
             ],
         )?;
+        trace!(%url, "Sending request");
         let response = self
             .client
             .get(url.clone())
