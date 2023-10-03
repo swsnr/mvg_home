@@ -7,7 +7,8 @@
 use anyhow::{anyhow, Context, Result};
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
-use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
+use time::{OffsetDateTime, UtcOffset};
 use tracing::{event, instrument, span, Instrument, Level};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -302,7 +303,10 @@ impl Mvg {
                     "destinationStationGlobalId",
                     destination_station.global_id.as_ref(),
                 ),
-                ("routingDateTime", ""),
+                (
+                    "routingDateTime",
+                    &start.to_offset(UtcOffset::UTC).format(&Rfc3339)?,
+                ),
                 ("routingDateTimeIsArrival", "false"),
                 (
                     "transportTypes",
