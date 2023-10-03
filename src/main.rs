@@ -15,7 +15,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use time::macros::format_description;
 use time::{Duration, OffsetDateTime, UtcOffset};
-use tracing::{debug, warn};
+use tracing::{debug, event, warn, Level};
 
 use tracing_futures::Instrument;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -151,6 +151,11 @@ fn process_args(args: Arguments) -> Result<()> {
         .update_config(config)
         .evict_unreachable_connections(now)
         .evict_too_few_connections(3);
+    event!(
+        Level::INFO,
+        "Found {} connections in cache",
+        cleared_cache.all_connections().len()
+    );
 
     // Create single client upfront; this resolves the HTTP proxy (if any) only once.
     let mvg = rt.block_on(Mvg::new().in_current_span())?;
@@ -159,10 +164,6 @@ fn process_args(args: Arguments) -> Result<()> {
         .block_on(
             cleared_cache
                 .refresh_empty::<anyhow::Error, _, _>(|desired| async {
-                    debug!(
-                        "Updating results for desired connection from {} to {}",
-                        desired.start, desired.destination
-                    );
                     let desired_departure_time = now + desired.walk_to_start;
                     let start = mvg.find_unambiguous_station_by_name(&desired.start).await?;
                     let destination = mvg
