@@ -1,9 +1,20 @@
 version: 2
 updates:
-  # Check for updates of crates and actions every month.  We don't check Rust
-  # dependencies, because this creates way to many pull requests for trivial
-  # updates, and cargo update exists.
+  # Check for updates of actions every month.  Don't check crate updates,
+  # because it creates way too many pull requests, and cargo update exists.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: monthly
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: monthly
+    # Ignore minor and patch updates; downstream consumers
+    # can do these; we only need to check for semver
+    # incompatible updates.
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-patch"
+          - "version-update:semver-minor"
