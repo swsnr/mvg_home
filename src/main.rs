@@ -15,8 +15,9 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use time::macros::format_description;
 use time::{Duration, OffsetDateTime, UtcOffset};
-use tracing::{debug, info_span, warn};
-use tracing_futures::*;
+use tracing::{debug, warn};
+
+use tracing_futures::Instrument;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 mod cache;
@@ -143,8 +144,7 @@ fn process_args(args: Arguments) -> Result<()> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .unwrap()
-        .instrument(info_span!("main::rt"));
+        .unwrap();
 
     let cleared_cache = args
         .load_cache()
@@ -153,24 +153,25 @@ fn process_args(args: Arguments) -> Result<()> {
         .evict_too_few_connections(3);
 
     let new_cache = rt
-        .inner()
         .block_on(
-            cleared_cache.refresh_empty::<anyhow::Error, _, _>(|desired| async {
-                let mvg = Mvg::new().await?;
-                debug!(
-                    "Updating results for desired connection from {} to {}",
-                    desired.start, desired.destination
-                );
-                let desired_departure_time = now + desired.walk_to_start;
-                let start = mvg.find_unambiguous_station_by_name(&desired.start).await?;
-                let destination = mvg
-                    .find_unambiguous_station_by_name(&desired.destination)
-                    .await?;
-                let connections = mvg
-                    .get_connections(&start, &destination, desired_departure_time)
-                    .await?;
-                Ok((desired, connections))
-            }),
+            cleared_cache
+                .refresh_empty::<anyhow::Error, _, _>(|desired| async {
+                    let mvg = Mvg::new().await?;
+                    debug!(
+                        "Updating results for desired connection from {} to {}",
+                        desired.start, desired.destination
+                    );
+                    let desired_departure_time = now + desired.walk_to_start;
+                    let start = mvg.find_unambiguous_station_by_name(&desired.start).await?;
+                    let destination = mvg
+                        .find_unambiguous_station_by_name(&desired.destination)
+                        .await?;
+                    let connections = mvg
+                        .get_connections(&start, &destination, desired_departure_time)
+                        .await?;
+                    Ok((desired, connections))
+                })
+                .in_current_span(),
         )?
         // Evict unreachable connections again, in case the MVG API returned nonsense
         .evict_unreachable_connections(now)
