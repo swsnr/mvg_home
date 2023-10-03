@@ -35,13 +35,16 @@ struct ConnectionDisplay<'a> {
 
 impl<'a> Display for ConnectionDisplay<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let departure = self.connection.departure.to_offset(self.local_offset);
-        let arrival = self.connection.arrival.to_offset(self.local_offset);
+        let departure = self
+            .connection
+            .departure_time()
+            .to_offset(self.local_offset);
+        let arrival = self.connection.arrival_time().to_offset(self.local_offset);
         let start_in = departure - self.walk_to_start - OffsetDateTime::now_utc();
 
         let hh_mm = format_description!("[hour]:[minute]");
 
-        let first_part = &self.connection.connection_parts[0];
+        let first_part = self.connection.departure();
 
         write!(
             f,
@@ -49,34 +52,32 @@ impl<'a> Display for ConnectionDisplay<'a> {
             ((start_in.whole_seconds() as f64) / 60.0).ceil(),
             departure.time().format(hh_mm).unwrap(),
             arrival.time().format(hh_mm).unwrap(),
-            self.connection.from.human_readable(),
+            self.connection.departure().from.name,
         )?;
-        if self.connection.connection_parts.len() == 1 {
-            use ConnectionPartTransportation::*;
-            match &first_part.transportation {
+        if self.connection.parts.len() == 1 {
+            match first_part.line.transport_type {
                 // There's only one part in the connection so if it's a footway
                 //  we'll just walk to the destination
-                Footway => write!(f, " 🏃"),
-                Transportation(transportation) => {
+                TransportType::Pedestrian => write!(f, " 🏃"),
+                _ => {
                     write!(
                         f,
                         " {}{}",
-                        transportation.product.icon(),
-                        transportation.label
+                        first_part.line.transport_type.icon(),
+                        first_part.line.label
                     )
                 }
             }
-        } else if 2 <= self.connection.connection_parts.len() {
-            use ConnectionPartTransportation::*;
-            match &first_part.transportation {
-                Footway => write!(f, " → 🏃{}", first_part.to.human_readable()),
-                Transportation(transportation) => {
+        } else if 2 <= self.connection.parts.len() {
+            match first_part.line.transport_type {
+                TransportType::Pedestrian => write!(f, " → 🏃{}", first_part.to.name),
+                _ => {
                     write!(
                         f,
                         " → {} {}{}",
-                        first_part.to.human_readable(),
-                        transportation.product.icon(),
-                        transportation.label
+                        first_part.to.name,
+                        first_part.line.transport_type.icon(),
+                        first_part.line.label
                     )
                 }
             }
@@ -166,11 +167,7 @@ fn process_args(args: Arguments) -> Result<()> {
                     .find_unambiguous_station_by_name(&desired.destination)
                     .await?;
                 let connections = mvg
-                    .get_connections(
-                        &start.global_id,
-                        &destination.global_id,
-                        desired_departure_time,
-                    )
+                    .get_connections(&start, &destination, desired_departure_time)
                     .await?;
                 Ok((desired, connections))
             }),
@@ -178,7 +175,7 @@ fn process_args(args: Arguments) -> Result<()> {
         // Evict unreachable connections again, in case the MVG API returned nonsense
         .evict_unreachable_connections(now)
         // And evict anything that starts with walking
-        .evict_starts_with_footway();
+        .evict_starts_with_pedestrian();
 
     debug!("Saving cache");
     if let Err(error) = new_cache.save() {

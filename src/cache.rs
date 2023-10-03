@@ -15,7 +15,7 @@ use tracing_futures::Instrument;
 
 use crate::{
     config::{Config, DesiredConnection},
-    mvg::Connection,
+    mvg::{Connection, TransportType},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -87,7 +87,7 @@ impl ConnectionsCache {
     /// This tool already takes care of the way to the first station, so
     /// anything that starts with walking somewhere doesn't help.
     #[instrument(skip(self))]
-    pub fn evict_starts_with_footway(self) -> Self {
+    pub fn evict_starts_with_pedestrian(self) -> Self {
         let connections = self
             .connections
             .into_iter()
@@ -99,7 +99,7 @@ impl ConnectionsCache {
                     let remaining_connections = connections
                         .into_iter()
                         // Remove everything that starts with a walk
-                        .filter(|c| !c.starts_with_footway())
+                        .filter(|c| c.departure().line.transport_type != TransportType::Pedestrian)
                         .collect::<Vec<_>>();
                     debug!(
                         "Evicted {} unreachable connections for desired connection from {} to {}",
@@ -134,10 +134,10 @@ impl ConnectionsCache {
                         .into_iter()
                         // Connections must start strictly after the current time; we can get a train which already
                         // left the station.
-                        .filter(|c| now <= c.departure)
+                        .filter(|c| now <= c.departure_time())
                         // We still must have at least half of time time to walk to connection start, or we'll definitely
                         // miss the train.
-                        .filter(|c| now <= (c.departure - (desired.walk_to_start / 2)))
+                        .filter(|c| now <= (c.departure_time() - (desired.walk_to_start / 2)))
                         .collect::<Vec<_>>();
                     debug!(
                         "Evicted {} unreachable connections for desired connection from {} to {}",
@@ -224,12 +224,12 @@ impl ConnectionsCache {
                             || (!desired
                                 .ignore_starting_with
                                 .iter()
-                                .any(|l| c.starts_with_transportation_with_product_label(l)))
+                                .any(|l| &c.departure().line.label == l))
                     })
                     .map(|connection| (desired.walk_to_start, connection))
             })
             .collect::<Vec<_>>();
-        connections.sort_by_key(|(walk_to_start, c)| c.departure - *walk_to_start);
+        connections.sort_by_key(|(walk_to_start, c)| c.departure_time() - *walk_to_start);
         connections
     }
 }

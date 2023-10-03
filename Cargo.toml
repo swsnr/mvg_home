@@ -15,13 +15,7 @@ serde = { version = "1.0.160", default-features = false, features = ["derive"] }
 dirs = "5.0.0"
 anyhow = { version = "1.0.70", default-features = false, features = ["std"] }
 reqwest = { version = "0.11.16", default-features = false, features = ["default-tls", "json"] }
-# url = "2.3.1"
-time = { version = "0.3.20", default-features = false, features = [
-    "local-offset",
-    "macros",
-    "formatting",
-    "serde",
-] }
+time = { version = "0.3.20", default-features = false, features = ["local-offset", "macros", "serde", "parsing", "formatting"] }
 clap = { version = "4.2.4", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
 futures = { version = "0.3.28", default-features = false }
 flexbuffers = "2.0.0"

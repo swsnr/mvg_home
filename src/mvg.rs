@@ -4,13 +4,11 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-use std::fmt::Display;
-
 use anyhow::{anyhow, Context, Result};
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
-use tracing::{debug, event, instrument, span, trace, Instrument, Level};
+use tracing::{debug, event, instrument, span, Instrument, Level};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -37,141 +35,86 @@ enum LocationOrUnknown {
     Unknown(UnknownLocationType),
 }
 
-impl Location {
-    pub fn human_readable(&self) -> HumanReadableLocation {
-        HumanReadableLocation(self)
-    }
-}
-
-pub struct HumanReadableLocation<'a>(&'a Location);
-
-impl<'a> Display for HumanReadableLocation<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.0 {
-            Location::Station(station) => write!(f, "{}", station.name),
-        }
-    }
-}
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
-pub enum TransportationProduct {
-    SBahn,
+pub enum TransportType {
+    Schiff,
+    Ruftaxi,
+    Bahn,
     UBahn,
     Tram,
+    SBahn,
     Bus,
     #[serde(rename = "REGIONAL_BUS")]
     RegionalBus,
+    Pedestrian,
 }
 
-impl TransportationProduct {
+impl TransportType {
     pub fn icon(self) -> &'static str {
         match self {
-            TransportationProduct::SBahn => "🚆",
-            TransportationProduct::UBahn => "🚇",
-            TransportationProduct::Tram => "🚊",
-            TransportationProduct::Bus => "🚍",
-            TransportationProduct::RegionalBus => "🚍",
+            TransportType::Bahn => "🚆",
+            TransportType::SBahn => "🚆",
+            TransportType::UBahn => "🚇",
+            TransportType::Tram => "🚊",
+            TransportType::Bus => "🚍",
+            TransportType::RegionalBus => "🚍",
+            TransportType::Schiff => "🛳",
+            TransportType::Ruftaxi => "🚖",
+            TransportType::Pedestrian => "🚶",
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Transportation {
-    pub label: String,
-    pub product: TransportationProduct,
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionPartPlace {
+    pub name: String,
+    #[serde(with = "time::serde::rfc3339")]
+    pub planned_departure: OffsetDateTime,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "connectionPartType", rename_all = "UPPERCASE")]
-pub enum ConnectionPartTransportation {
-    Footway,
-    Transportation(Transportation),
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Line {
+    pub label: String,
+    pub transport_type: TransportType,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionPart {
-    pub from: Location,
-    pub to: Location,
-    #[serde(flatten)]
-    pub transportation: ConnectionPartTransportation,
-}
-
-impl ConnectionPart {
-    pub fn is_footway(&self) -> bool {
-        match &self.transportation {
-            ConnectionPartTransportation::Footway => true,
-            ConnectionPartTransportation::Transportation(_) => false,
-        }
-    }
-
-    pub fn is_transportation_with_product_label<S: AsRef<str>>(&self, label: S) -> bool {
-        match &self.transportation {
-            ConnectionPartTransportation::Footway => false,
-            ConnectionPartTransportation::Transportation(t) => t.label == label.as_ref(),
-        }
-    }
-}
-
-mod unix_millis {
-    use serde::{
-        de::{self, Unexpected},
-        Deserialize, Deserializer, Serializer,
-    };
-    use time::OffsetDateTime;
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<OffsetDateTime, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let value = i64::deserialize(deserializer)? / 1000;
-        OffsetDateTime::from_unix_timestamp(value).map_err(|err| {
-            de::Error::invalid_value(Unexpected::Signed(value), &format!("{}", err).as_str())
-        })
-    }
-
-    pub fn serialize<S>(value: &OffsetDateTime, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_i64(value.unix_timestamp() * 1000)
-    }
+    pub from: ConnectionPartPlace,
+    pub to: ConnectionPartPlace,
+    pub line: Line,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Connection {
-    pub from: Location,
-    #[serde(with = "unix_millis")]
-    pub departure: OffsetDateTime,
-    pub to: Location,
-    #[serde(with = "unix_millis")]
-    pub arrival: OffsetDateTime,
-    #[serde(rename = "connectionPartList")]
-    pub connection_parts: Vec<ConnectionPart>,
+    pub parts: Vec<ConnectionPart>,
 }
 
 impl Connection {
-    pub fn starts_with_footway(&self) -> bool {
-        match self.connection_parts.get(0) {
-            None => false,
-            Some(part) => part.is_footway(),
-        }
+    pub fn departure(&self) -> &ConnectionPart {
+        self.parts
+            .get(0)
+            .expect("Connection without at least one part makes no sense at all!")
     }
 
-    pub fn starts_with_transportation_with_product_label<S: AsRef<str>>(&self, label: S) -> bool {
-        match self.connection_parts.get(0) {
-            None => false,
-            Some(part) => part.is_transportation_with_product_label(label),
-        }
+    pub fn departure_time(&self) -> OffsetDateTime {
+        self.departure().from.planned_departure
     }
-}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ConnectionsResponse {
-    connection_list: Vec<Connection>,
+    pub fn arrival(&self) -> &ConnectionPart {
+        self.parts
+            .last()
+            .expect("Connection without at least one part makes no sense at all!")
+    }
+
+    pub fn arrival_time(&self) -> OffsetDateTime {
+        self.arrival().to.planned_departure
+    }
 }
 
 pub struct Mvg {
@@ -186,9 +129,17 @@ impl Mvg {
         let env_proxies = system_proxy::env::from_curl_env();
         let proxy = reqwest::Proxy::custom(move |url| {
             let proxy = env_proxies.lookup(url).map(Clone::clone);
-            debug!("Environment provided proxy {:?} for {}", proxy, &url);
+            event!(
+                Level::DEBUG,
+                "Environment provided proxy {:?} for {}",
+                proxy,
+                &url
+            );
             proxy.or_else(|| {
-                debug!("Environment HTTP proxy empty, checking desktop portal");
+                event!(
+                    Level::DEBUG,
+                    "Environment HTTP proxy empty, checking desktop portal"
+                );
                 // Create a one-shot channel to bridge from the async proxy resolver to the synchronous
                 // proxy interface of reqwest.
                 let (tx, rx) = tokio::sync::oneshot::channel();
@@ -204,7 +155,12 @@ impl Mvg {
                         eprintln!("Proxy lookup on portal failed: {}", err);
                         None
                     });
-                debug!("XDG desktop portal provided proxy {:?} for {}", proxy, &url);
+                event!(
+                    Level::DEBUG,
+                    "XDG desktop portal provided proxy {:?} for {}",
+                    proxy,
+                    &url
+                );
                 proxy
             })
         });
@@ -224,11 +180,11 @@ impl Mvg {
             "https://www.mvg.de/api/fib/v2/location",
             &[("query", name.as_ref())],
         )?;
-        let _guard = span!(Level::INFO, "Request locations", %url).entered();
+        let _guard = span!(Level::INFO, "request::GET", %url).entered();
         event!(Level::TRACE, %url, "Sending request");
         let response = self
             .client
-            .get(url.clone())
+            .get(url)
             .header("Accept", "application/json")
             .send()
             .in_current_span()
@@ -262,7 +218,12 @@ impl Mvg {
                 );
                 locations
             })
-            .with_context(|| format!("Failed to parse response from {}", url))
+            .with_context(|| {
+                format!(
+                    "Failed to parse response for location by name {}",
+                    name.as_ref()
+                )
+            })
     }
 
     #[instrument(skip(self), fields(name=name.as_ref()))]
@@ -273,6 +234,7 @@ impl Mvg {
         debug!("Looking for single station with name {}", name.as_ref());
         let mut stations: Vec<Station> = self
             .get_location_by_name(name.as_ref())
+            .in_current_span()
             .await?
             .into_iter()
             .map(|loc| match loc {
@@ -310,44 +272,67 @@ impl Mvg {
         }
     }
 
-    #[instrument(skip(self), fields(from_station_id=from_station_id.as_ref(), to_station_id=to_station_id.as_ref(), start=%start))]
-    pub async fn get_connections<S: AsRef<str>, T: AsRef<str>>(
+    #[instrument(skip(self), fields(start=%start))]
+    pub async fn get_connections(
         &self,
-        from_station_id: S,
-        to_station_id: T,
+        origin_station: &Station,
+        destination_station: &Station,
         start: OffsetDateTime,
     ) -> Result<Vec<Connection>> {
-        debug!(
-            "Fetching connections between station ID {} and station ID {} starting at {}",
-            from_station_id.as_ref(),
-            to_station_id.as_ref(),
+        event!(
+            Level::DEBUG,
+            "Fetching connections between station {} ({}) and station {} ({}) starting at {}",
+            origin_station.name,
+            origin_station.global_id,
+            destination_station.name,
+            destination_station.global_id,
             start
         );
         let url = Url::parse_with_params(
-            "https://www.mvg.de/api/fahrinfo/routing",
+            "https://www.mvg.de/api/fib/v2/connection",
             &[
-                ("fromStation", from_station_id.as_ref()),
-                ("toStation", to_station_id.as_ref()),
-                ("time", &(start.unix_timestamp() * 1000).to_string()),
+                ("originStationGlobalId", origin_station.global_id.as_str()),
+                (
+                    "destinationStationGlobalId",
+                    destination_station.global_id.as_ref(),
+                ),
+                ("routingDateTime", ""),
+                ("routingDateTimeIsArrival", "false"),
+                (
+                    "transportTypes",
+                    "SCHIFF,RUFTAXI,BAHN,UBAHN,TRAM,SBAHN,BUS,REGIONAL_BUS",
+                ),
             ],
         )?;
-        trace!(%url, "Sending request");
+        let _guard = span!(Level::INFO, "request::GET", %url).entered();
+        event!(Level::TRACE, %url, "Sending request");
         let response = self
             .client
-            .get(url.clone())
+            .get(url)
             .header("Accept", "application/json")
             .send()
+            .in_current_span()
             .await
-            .with_context(|| format!("Failed to query URL to resolve location {}", url.as_ref()))?;
+            .with_context(|| {
+                format!(
+                    "Failed to query URL to get a connection from {} to {}",
+                    origin_station.global_id, destination_station.global_id
+                )
+            })?;
         response
-            .json::<ConnectionsResponse>()
+            .json::<Vec<Connection>>()
+            .in_current_span()
             .await
-            .map(|response| {
-                let connections = response.connection_list;
-                debug!("Received {} connections", connections.len());
+            .map(|connections| {
+                event!(Level::DEBUG, "Received {} connections", connections.len());
                 connections
             })
-            .with_context(|| format!("Failed to decode response from {}", url))
+            .with_context(|| {
+                format!(
+                    "Failed to parse response for connection from from {} to {}",
+                    origin_station.global_id, destination_station.global_id
+                )
+            })
     }
 }
 
