@@ -10,13 +10,13 @@ edition = "2021"
 publish = false
 
 [dependencies]
-toml = { version = "0.7.3", default-features = false, features=["parse"] }
-serde = { version = "1.0.160", default-features = false, features = ["derive"] }
-dirs = "5.0.0"
-anyhow = { version = "1.0.70", default-features = false, features = ["std"] }
-reqwest = { version = "0.11.16", default-features = false, features = ["default-tls", "json"] }
-time = { version = "0.3.20", default-features = false, features = ["local-offset", "macros", "serde", "parsing", "formatting"] }
-clap = { version = "4.2.4", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
+toml = { version = "0.8.2", default-features = false, features=["parse"] }
+serde = { version = "1.0.188", default-features = false, features = ["derive"] }
+dirs = "5.0.1"
+anyhow = { version = "1.0.75", default-features = false, features = ["std"] }
+reqwest = { version = "0.11.22", default-features = false, features = ["default-tls", "json"] }
+time = { version = "0.3.29", default-features = false, features = ["local-offset", "macros", "serde", "parsing", "formatting"] }
+clap = { version = "4.4.6", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
 futures = { version = "0.3.28", default-features = false }
 flexbuffers = "2.0.0"
 tracing = { version = "0.1.37", default-features = false }
@@ -28,10 +28,10 @@ system_proxy = { version = "0.3.2", default-features = false, features = ["tokio
 # rt: provides the actual runtime
 # rt-multi-thread: for blocking inside async contexts, because request's proxy API is synchronous
 # sync: provides channels, which we need because the reqwest proxy API is synchronous
-tokio = { version = "1.28.0", default-features = false, features = ["rt", "rt-multi-thread", "sync"] }
+tokio = { version = "1.32.0", default-features = false, features = ["rt", "rt-multi-thread", "sync"] }
 humantime = "2.1.0"
 
 [dev-dependencies]
-pretty_assertions = "1.3.0"
+pretty_assertions = "1.4.0"
 # macros: for tokio::test
-tokio = { version = "1.28.0", default-features = false, features = ["macros"] }
+tokio = { version = "1.32.0", default-features = false, features = ["macros"] }
