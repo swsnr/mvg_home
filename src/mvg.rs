@@ -173,7 +173,7 @@ impl Mvg {
 
     #[instrument(skip(self), fields(name=name.as_ref()))]
     pub async fn get_location_by_name<S: AsRef<str>>(&self, name: S) -> Result<Vec<Location>> {
-        event!(Level::DEBUG, "Finding locations for {}", name.as_ref());
+        event!(Level::INFO, "Finding locations for {}", name.as_ref());
         let mut url = self.base_url.join("location")?;
         url.query_pairs_mut().append_pair("query", name.as_ref());
 
@@ -209,7 +209,7 @@ impl Mvg {
                     })
                     .collect::<Vec<_>>();
                 event!(
-                    Level::DEBUG,
+                    Level::INFO,
                     "Received {} known locations for {}",
                     locations.len(),
                     name.as_ref()
@@ -230,7 +230,7 @@ impl Mvg {
         name: S,
     ) -> Result<Station> {
         event!(
-            Level::DEBUG,
+            Level::INFO,
             "Looking for single station with name {}",
             name.as_ref()
         );
@@ -265,7 +265,7 @@ impl Mvg {
                 .pop()
                 .with_context(|| format!("No matches for {}", name.as_ref()))?;
             event!(
-                Level::DEBUG,
+                Level::INFO,
                 "Found station with name {} and id {} for {}",
                 station.name,
                 station.global_id,
@@ -283,7 +283,7 @@ impl Mvg {
         start: OffsetDateTime,
     ) -> Result<Vec<Connection>> {
         event!(
-            Level::DEBUG,
+            Level::INFO,
             "Fetching connections between station {} ({}) and station {} ({}) starting at {}",
             origin_station.name,
             origin_station.global_id,
@@ -328,7 +328,7 @@ impl Mvg {
             .in_current_span()
             .await
             .map(|connections| {
-                event!(Level::DEBUG, "Received {} connections", connections.len());
+                event!(Level::INFO, "Received {} connections", connections.len());
                 connections
             })
             .with_context(|| {

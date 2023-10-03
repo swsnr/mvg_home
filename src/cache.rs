@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use time::{Duration, OffsetDateTime};
-use tracing::{debug, info_span, instrument};
+use tracing::{debug, event, info_span, instrument, Level};
 use tracing_futures::Instrument;
 
 use crate::{
@@ -71,7 +71,10 @@ impl ConnectionsCache {
         {
             self
         } else {
-            debug!("Discarding cached connections, configuration changed");
+            event!(
+                Level::INFO,
+                "Discarding cached connections, configuration changed"
+            );
             Self {
                 connections: config
                     .connections
@@ -196,7 +199,7 @@ impl ConnectionsCache {
                 let update_span = info_span!("update", start=%desired.start, destination=%desired.destination);
                 async {
                     if connections.is_empty() {
-                        debug!("Desired connection from {} to {} has no connections, refreshing connections", desired.start, desired.destination);
+                        event!(Level::INFO, "Desired connection from {} to {} has no cached connections, refreshing connections", desired.start, desired.destination);
                         update(desired).await
                     } else {
                         Ok((desired, connections))
