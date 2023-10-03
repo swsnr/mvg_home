@@ -118,25 +118,34 @@ impl Connection {
     }
 }
 
-async fn get_proxy_for_url(url: &Url) -> Result<Option<Url>> {
+async fn get_portal_proxy_for_url(url: &Url) -> Result<Option<Url>> {
+    system_proxy::unix::FreedesktopPortalProxyResolver::connect()
+        .await
+        .with_context(|| "Failed to connect to freedesktop proxy portal".to_string())?
+        .lookup(url)
+        .await
+        .with_context(|| format!("Failed to lookup proxy for {}", url))
+}
+
+async fn get_proxy_for_url(url: &Url) -> Option<Url> {
     event!(Level::DEBUG, "Looking up proxy for {url} in environment");
     if let Some(proxy) = system_proxy::env::from_curl_env().lookup(url) {
-        Ok(Some(proxy.clone()))
+        Some(proxy.clone())
     } else {
         event!(
             Level::DEBUG,
             "Asking freedesktop proxy portal for proxy for {url}"
         );
-        if let Some(proxy) = system_proxy::unix::FreedesktopPortalProxyResolver::connect()
+        if let Some(proxy) = get_portal_proxy_for_url(url)
             .await
-            .with_context(|| "Failed to connect to freedesktop proxy portal".to_string())?
-            .lookup(url)
-            .await?
+            .map_err(|err| event!(Level::WARN, "Portal proxy lookup failed: {err}"))
+            .ok()
+            .flatten()
         {
-            Ok(Some(proxy))
+            Some(proxy)
         } else {
             event!(Level::DEBUG, "Found no proxy for {url}");
-            Ok(None)
+            None
         }
     }
 }
@@ -154,7 +163,7 @@ impl Mvg {
         // Get the proxy to use for the base API url.  Even though we're technically
         // supposed to resolve the proxy for each URL, it's really unlikely that
         // some PAC thing drills down into the MVG API URLs.
-        let builder = match get_proxy_for_url(&base_url).await? {
+        let builder = match get_proxy_for_url(&base_url).await {
             Some(proxy) => {
                 event!(Level::INFO, "Using proxy {proxy} for {base_url}");
                 builder.proxy(Proxy::all(proxy)?)
