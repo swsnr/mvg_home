@@ -5,7 +5,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 use anyhow::{anyhow, Context, Result};
-use reqwest::{Client, Url};
+use reqwest::{Client, Proxy, Url};
 use serde::{Deserialize, Serialize};
 use time::format_description::well_known::Rfc3339;
 use time::{OffsetDateTime, UtcOffset};
@@ -118,69 +118,65 @@ impl Connection {
     }
 }
 
+async fn get_proxy_for_url(url: &Url) -> Result<Option<Url>> {
+    event!(Level::DEBUG, "Looking up proxy for {url} in environment");
+    if let Some(proxy) = system_proxy::env::from_curl_env().lookup(url) {
+        Ok(Some(proxy.clone()))
+    } else {
+        event!(
+            Level::DEBUG,
+            "Asking freedesktop proxy portal for proxy for {url}"
+        );
+        if let Some(proxy) = system_proxy::unix::FreedesktopPortalProxyResolver::connect()
+            .await
+            .with_context(|| "Failed to connect to freedesktop proxy portal".to_string())?
+            .lookup(url)
+            .await?
+        {
+            Ok(Some(proxy))
+        } else {
+            event!(Level::DEBUG, "Found no proxy for {url}");
+            Ok(None)
+        }
+    }
+}
+
 pub struct Mvg {
+    base_url: Url,
     client: Client,
 }
 
 impl Mvg {
     pub async fn new() -> Result<Self> {
-        let portal_resolver = system_proxy::unix::FreedesktopPortalProxyResolver::connect()
-            .await
-            .with_context(|| "Failed to connect to freedesktop proxy portal".to_string())?;
-        let env_proxies = system_proxy::env::from_curl_env();
-        let proxy = reqwest::Proxy::custom(move |url| {
-            let proxy = env_proxies.lookup(url).map(Clone::clone);
-            event!(
-                Level::DEBUG,
-                "Environment provided proxy {:?} for {}",
-                proxy,
-                &url
-            );
-            proxy.or_else(|| {
-                event!(
-                    Level::DEBUG,
-                    "Environment HTTP proxy empty, checking desktop portal"
-                );
-                // Create a one-shot channel to bridge from the async proxy resolver to the synchronous
-                // proxy interface of reqwest.
-                let (tx, rx) = tokio::sync::oneshot::channel();
-                let url_inner = url.clone();
-                let portal_resolver = portal_resolver.clone();
-                tokio::task::spawn(async move {
-                    let result = portal_resolver.lookup(&url_inner).await;
-                    tx.send(result).unwrap();
-                });
-                let proxy = tokio::task::block_in_place(|| rx.blocking_recv())
-                    .unwrap()
-                    .unwrap_or_else(|err| {
-                        eprintln!("Proxy lookup on portal failed: {}", err);
-                        None
-                    });
-                event!(
-                    Level::DEBUG,
-                    "XDG desktop portal provided proxy {:?} for {}",
-                    proxy,
-                    &url
-                );
-                proxy
-            })
-        });
+        let base_url = Url::parse("https://www.mvg.de/api/fib/v2/")?;
+
+        let builder = reqwest::ClientBuilder::new().user_agent("home");
+        // Get the proxy to use for the base API url.  Even though we're technically
+        // supposed to resolve the proxy for each URL, it's really unlikely that
+        // some PAC thing drills down into the MVG API URLs.
+        let builder = match get_proxy_for_url(&base_url).await? {
+            Some(proxy) => {
+                event!(Level::INFO, "Using proxy {proxy} for {base_url}");
+                builder.proxy(Proxy::all(proxy)?)
+            }
+            None => {
+                event!(Level::INFO, "Using direct connection for {base_url}");
+                builder.no_proxy()
+            }
+        };
 
         Ok(Self {
-            client: reqwest::ClientBuilder::new()
-                .user_agent("home")
-                .proxy(proxy)
-                .build()?,
+            base_url,
+            client: builder.build()?,
         })
     }
 
     #[instrument(skip(self), fields(name=name.as_ref()))]
     pub async fn get_location_by_name<S: AsRef<str>>(&self, name: S) -> Result<Vec<Location>> {
         event!(Level::DEBUG, "Finding locations for {}", name.as_ref());
-        let url = Url::parse_with_params(
-            "https://www.mvg.de/api/fib/v2/location",
-            &[("query", name.as_ref())],
-        )?;
+        let mut url = self.base_url.join("location")?;
+        url.query_pairs_mut().append_pair("query", name.as_ref());
+
         let _guard = span!(Level::INFO, "request::GET", %url).entered();
         event!(Level::TRACE, %url, "Sending request");
         let response = self
@@ -295,25 +291,23 @@ impl Mvg {
             destination_station.global_id,
             start
         );
-        let url = Url::parse_with_params(
-            "https://www.mvg.de/api/fib/v2/connection",
-            &[
-                ("originStationGlobalId", origin_station.global_id.as_str()),
-                (
-                    "destinationStationGlobalId",
-                    destination_station.global_id.as_ref(),
-                ),
-                (
-                    "routingDateTime",
-                    &start.to_offset(UtcOffset::UTC).format(&Rfc3339)?,
-                ),
-                ("routingDateTimeIsArrival", "false"),
-                (
-                    "transportTypes",
-                    "SCHIFF,RUFTAXI,BAHN,UBAHN,TRAM,SBAHN,BUS,REGIONAL_BUS",
-                ),
-            ],
-        )?;
+        let mut url = self.base_url.join("connection")?;
+        url.query_pairs_mut()
+            .append_pair("originStationGlobalId", origin_station.global_id.as_str())
+            .append_pair(
+                "destinationStationGlobalId",
+                destination_station.global_id.as_ref(),
+            )
+            .append_pair(
+                "routingDateTime",
+                &start.to_offset(UtcOffset::UTC).format(&Rfc3339)?,
+            )
+            .append_pair("routingDateTimeIsArrival", "false")
+            .append_pair(
+                "transportTypes",
+                "SCHIFF,RUFTAXI,BAHN,UBAHN,TRAM,SBAHN,BUS,REGIONAL_BUS",
+            );
+
         let _guard = span!(Level::INFO, "request::GET", %url).entered();
         event!(Level::TRACE, %url, "Sending request");
         let response = self
@@ -351,7 +345,7 @@ mod tests {
     use crate::mvg::*;
     use pretty_assertions::assert_eq;
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn big_well_known_station() {
         let mvg = Mvg::new().await.unwrap();
         let name = "Marienplatz";
@@ -365,7 +359,7 @@ mod tests {
         );
     }
 
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    #[tokio::test]
     async fn small_rural_bus_stop() {
         let mvg = Mvg::new().await.unwrap();
         let name = "Fuchswinkl";

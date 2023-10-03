@@ -28,7 +28,7 @@ system_proxy = { version = "0.3.2", default-features = false, features = ["tokio
 # rt: provides the actual runtime
 # rt-multi-thread: for blocking inside async contexts, because request's proxy API is synchronous
 # sync: provides channels, which we need because the reqwest proxy API is synchronous
-tokio = { version = "1.32.0", default-features = false, features = ["rt", "rt-multi-thread", "sync"] }
+tokio = { version = "1.32.0", default-features = false, features = ["rt"] }
 humantime = "2.1.0"
 
 [dev-dependencies]
