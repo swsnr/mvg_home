@@ -152,11 +152,13 @@ fn process_args(args: Arguments) -> Result<()> {
         .evict_unreachable_connections(now)
         .evict_too_few_connections(3);
 
+    // Create single client upfront; this resolves the HTTP proxy (if any) only once.
+    let mvg = rt.block_on(Mvg::new().in_current_span())?;
+
     let new_cache = rt
         .block_on(
             cleared_cache
                 .refresh_empty::<anyhow::Error, _, _>(|desired| async {
-                    let mvg = Mvg::new().await?;
                     debug!(
                         "Updating results for desired connection from {} to {}",
                         desired.start, desired.destination
