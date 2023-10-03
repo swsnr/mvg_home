@@ -8,7 +8,7 @@ use anyhow::{anyhow, Context, Result};
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
-use tracing::{debug, event, instrument, span, Instrument, Level};
+use tracing::{event, instrument, span, Instrument, Level};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -211,7 +211,8 @@ impl Mvg {
                         }
                     })
                     .collect::<Vec<_>>();
-                debug!(
+                event!(
+                    Level::DEBUG,
                     "Received {} known locations for {}",
                     locations.len(),
                     name.as_ref()
@@ -231,7 +232,11 @@ impl Mvg {
         &self,
         name: S,
     ) -> Result<Station> {
-        debug!("Looking for single station with name {}", name.as_ref());
+        event!(
+            Level::DEBUG,
+            "Looking for single station with name {}",
+            name.as_ref()
+        );
         let mut stations: Vec<Station> = self
             .get_location_by_name(name.as_ref())
             .in_current_span()
@@ -262,7 +267,8 @@ impl Mvg {
             let station = stations
                 .pop()
                 .with_context(|| format!("No matches for {}", name.as_ref()))?;
-            debug!(
+            event!(
+                Level::DEBUG,
                 "Found station with name {} and id {} for {}",
                 station.name,
                 station.global_id,
