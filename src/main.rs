@@ -166,7 +166,11 @@ fn process_args(args: Arguments) -> Result<()> {
                     .find_unambiguous_station_by_name(&desired.destination)
                     .await?;
                 let connections = mvg
-                    .get_connections(&start.id, &destination.id, desired_departure_time)
+                    .get_connections(
+                        &start.global_id,
+                        &destination.global_id,
+                        desired_departure_time,
+                    )
                     .await?;
                 Ok((desired, connections))
             }),

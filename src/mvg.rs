@@ -10,29 +10,31 @@ use anyhow::{anyhow, Context, Result};
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
-use tracing::{debug, instrument, trace};
+use tracing::{debug, event, instrument, span, trace, Instrument, Level};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Station {
-    pub id: String,
+    pub global_id: String,
     pub name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Address {
-    latitude: f64,
-    longitude: f64,
-    place: Option<String>,
-    street: Option<String>,
-    poi: bool,
+#[serde(tag = "type", rename_all = "UPPERCASE")]
+pub enum Location {
+    Station(Station),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
-pub enum Location {
-    Station(Station),
-    Address(Address),
-    // TODO: There are likely other location variants as well
+struct UnknownLocationType {
+    pub r#type: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+enum LocationOrUnknown {
+    Location(Location),
+    Unknown(UnknownLocationType),
 }
 
 impl Location {
@@ -47,19 +49,8 @@ impl<'a> Display for HumanReadableLocation<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.0 {
             Location::Station(station) => write!(f, "{}", station.name),
-            Location::Address(address) => match (&address.street, &address.place) {
-                (None, None) => write!(f, "{:.4},{:.4}", address.latitude, address.longitude),
-                (Some(street), Some(place)) => write!(f, "{}, {}", street, place),
-                (None, Some(street)) => write!(f, "{}", street),
-                (Some(place), None) => write!(f, "{}", place),
-            },
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct LocationsResponse {
-    locations: Vec<Location>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -228,28 +219,48 @@ impl Mvg {
 
     #[instrument(skip(self), fields(name=name.as_ref()))]
     pub async fn get_location_by_name<S: AsRef<str>>(&self, name: S) -> Result<Vec<Location>> {
-        debug!("Finding locations for {}", name.as_ref());
+        event!(Level::DEBUG, "Finding locations for {}", name.as_ref());
         let url = Url::parse_with_params(
-            "https://www.mvg.de/api/fahrinfo/location/queryWeb",
-            &[("q", name.as_ref())],
+            "https://www.mvg.de/api/fib/v2/location",
+            &[("query", name.as_ref())],
         )?;
-        trace!(%url, "Sending request");
+        let _guard = span!(Level::INFO, "Request locations", %url).entered();
+        event!(Level::TRACE, %url, "Sending request");
         let response = self
             .client
             .get(url.clone())
             .header("Accept", "application/json")
             .send()
+            .in_current_span()
             .await
             .with_context(|| {
                 format!("Failed to query URL to resolve location {}", name.as_ref())
             })?;
         response
-            .json::<LocationsResponse>()
+            .json::<Vec<LocationOrUnknown>>()
+            .in_current_span()
             .await
             .map(|response| {
-                let ls = response.locations;
-                debug!("Received {} locations for {}", ls.len(), name.as_ref());
-                ls
+                let locations = response
+                    .into_iter()
+                    .filter_map(|l| match l {
+                        LocationOrUnknown::Location(l) => Some(l),
+                        LocationOrUnknown::Unknown(l) => {
+                            event!(
+                                Level::TRACE,
+                                "Skipping over unknown location type {} in response",
+                                l.r#type
+                            );
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                debug!(
+                    "Received {} known locations for {}",
+                    locations.len(),
+                    name.as_ref()
+                );
+                locations
             })
             .with_context(|| format!("Failed to parse response from {}", url))
     }
@@ -264,16 +275,8 @@ impl Mvg {
             .get_location_by_name(name.as_ref())
             .await?
             .into_iter()
-            .filter_map(|loc| match loc {
-                Location::Station(station) => Some(station),
-                other => {
-                    debug!(
-                        "Skipping location {} returned for name {}, not a station",
-                        other.human_readable(),
-                        name.as_ref()
-                    );
-                    None
-                }
+            .map(|loc| match loc {
+                Location::Station(station) => station,
             })
             .collect();
         if 1 < stations.len() {
@@ -300,7 +303,7 @@ impl Mvg {
             debug!(
                 "Found station with name {} and id {} for {}",
                 station.name,
-                station.id,
+                station.global_id,
                 name.as_ref()
             );
             Ok(station)
@@ -359,15 +362,12 @@ mod tests {
         let name = "Marienplatz";
         let locations = mvg.get_location_by_name(name).await.unwrap();
         assert!(1 < locations.len(), "Too few locations: {:?}", locations);
-        if let Location::Station(station) = &locations[0] {
-            assert_eq!(station.name, name);
-            assert_eq!(
-                &mvg.find_unambiguous_station_by_name(name).await.unwrap(),
-                station
-            );
-        } else {
-            panic!("First location not a station: {:?}", &locations[0]);
-        }
+        let Location::Station(station) = &locations[0];
+        assert_eq!(station.name, name);
+        assert_eq!(
+            &mvg.find_unambiguous_station_by_name(name).await.unwrap(),
+            station
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -376,14 +376,11 @@ mod tests {
         let name = "Fuchswinkl";
         let locations = mvg.get_location_by_name("Fuchswinkl").await.unwrap();
         assert!(!locations.is_empty());
-        if let Location::Station(station) = &locations[0] {
-            assert_eq!(station.name, "Fuchswinkl, Abzw.");
-            assert_eq!(
-                &mvg.find_unambiguous_station_by_name(name).await.unwrap(),
-                station
-            );
-        } else {
-            panic!("First location not a station: {:?}", &locations[0]);
-        }
+        let Location::Station(station) = &locations[0];
+        assert_eq!(station.name, "Fuchswinkl, Abzw.");
+        assert_eq!(
+            &mvg.find_unambiguous_station_by_name(name).await.unwrap(),
+            station
+        );
     }
 }
