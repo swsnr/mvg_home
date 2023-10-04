@@ -352,6 +352,7 @@ impl Mvg {
 #[cfg(test)]
 mod tests {
     use crate::mvg::*;
+    use futures::future::try_join;
     use pretty_assertions::assert_eq;
 
     #[tokio::test]
@@ -380,5 +381,30 @@ mod tests {
             &mvg.find_unambiguous_station_by_name(name).await.unwrap(),
             station
         );
+    }
+
+    #[tokio::test]
+    async fn connections() {
+        let mvg = Mvg::new().await.unwrap();
+        let (departure, destination) = try_join(
+            mvg.find_unambiguous_station_by_name("Waldfriedhof"),
+            mvg.find_unambiguous_station_by_name("Schwanthaler Höhe"),
+        )
+        .await
+        .unwrap();
+        let tomorrow_morning = OffsetDateTime::now_utc()
+            .date()
+            .next_day()
+            .unwrap()
+            .with_hms(9, 0, 0)
+            .unwrap()
+            .assume_offset(UtcOffset::UTC);
+        let connections = mvg
+            .get_connections(&departure, &destination, tomorrow_morning)
+            .await
+            .unwrap();
+        assert!(!connections.is_empty());
+        let first_connection = &connections[0];
+        assert!(tomorrow_morning <= first_connection.arrival_time());
     }
 }
