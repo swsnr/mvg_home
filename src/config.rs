@@ -7,8 +7,8 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use chrono::Duration;
 use serde::{Deserialize, Serialize};
-use time::Duration;
 
 /// The configuration file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -17,11 +17,11 @@ pub struct Config {
 }
 
 mod human_readable_duration {
+    use chrono::Duration;
     use serde::de::Unexpected;
     use serde::{de, Deserialize};
     use serde::{ser, Serialize};
     use serde::{Deserializer, Serializer};
-    use time::Duration;
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Duration, D::Error>
     where
@@ -29,16 +29,14 @@ mod human_readable_duration {
     {
         if deserializer.is_human_readable() {
             let value = String::deserialize(deserializer)?;
-            ::humantime::parse_duration(&value)
-                .map_err(|err| {
-                    de::Error::invalid_value(Unexpected::Str(&value), &format!("{}", err).as_str())
-                })?
-                .try_into()
-                .map_err(|err| {
-                    de::Error::invalid_value(Unexpected::Str(&value), &format!("{}", err).as_str())
-                })
+            Duration::from_std(humantime::parse_duration(&value).map_err(|err| {
+                de::Error::invalid_value(Unexpected::Str(&value), &format!("{}", err).as_str())
+            })?)
+            .map_err(|err| {
+                de::Error::invalid_value(Unexpected::Str(&value), &format!("{}", err).as_str())
+            })
         } else {
-            Duration::deserialize(deserializer)
+            Ok(Duration::seconds(i64::deserialize(deserializer)?))
         }
     }
 
@@ -47,14 +45,14 @@ mod human_readable_duration {
         S: Serializer,
     {
         if serializer.is_human_readable() {
-            let std_duration = (*value)
-                .try_into()
+            let std_duration = value
+                .to_std()
                 .map_err(|error| ser::Error::custom(format!("Invalid range: {}", error)))?;
 
             let formatted = ::humantime::format_duration(std_duration);
             serializer.serialize_str(&formatted.to_string())
         } else {
-            value.serialize(serializer)
+            value.num_seconds().serialize(serializer)
         }
     }
 }
