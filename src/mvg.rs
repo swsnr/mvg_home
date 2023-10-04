@@ -5,10 +5,9 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 use anyhow::{anyhow, Context, Result};
+use chrono::{DateTime, FixedOffset, Utc};
 use reqwest::{Client, Proxy, Url};
 use serde::{Deserialize, Serialize};
-use time::format_description::well_known::Rfc3339;
-use time::{OffsetDateTime, UtcOffset};
 use tracing::{event, instrument, span, Instrument, Level};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -71,8 +70,7 @@ impl TransportType {
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionPartPlace {
     pub name: String,
-    #[serde(with = "time::serde::rfc3339")]
-    pub planned_departure: OffsetDateTime,
+    pub planned_departure: DateTime<FixedOffset>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -103,7 +101,7 @@ impl Connection {
             .expect("Connection without at least one part makes no sense at all!")
     }
 
-    pub fn departure_time(&self) -> OffsetDateTime {
+    pub fn departure_time(&self) -> DateTime<FixedOffset> {
         self.departure().from.planned_departure
     }
 
@@ -113,7 +111,7 @@ impl Connection {
             .expect("Connection without at least one part makes no sense at all!")
     }
 
-    pub fn arrival_time(&self) -> OffsetDateTime {
+    pub fn arrival_time(&self) -> DateTime<FixedOffset> {
         self.arrival().to.planned_departure
     }
 }
@@ -289,7 +287,7 @@ impl Mvg {
         &self,
         origin_station: &Station,
         destination_station: &Station,
-        start: OffsetDateTime,
+        start: DateTime<Utc>,
     ) -> Result<Vec<Connection>> {
         event!(
             Level::INFO,
@@ -309,7 +307,7 @@ impl Mvg {
             )
             .append_pair(
                 "routingDateTime",
-                &start.to_offset(UtcOffset::UTC).format(&Rfc3339)?,
+                &start.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             )
             .append_pair("routingDateTimeIsArrival", "false")
             .append_pair(
@@ -352,6 +350,8 @@ impl Mvg {
 #[cfg(test)]
 mod tests {
     use crate::mvg::*;
+    use chrono::{Duration, Local, Timelike};
+    use futures::future::try_join;
     use pretty_assertions::assert_eq;
 
     #[tokio::test]
@@ -380,5 +380,35 @@ mod tests {
             &mvg.find_unambiguous_station_by_name(name).await.unwrap(),
             station
         );
+    }
+
+    #[tokio::test]
+    async fn connections() {
+        let mvg = Mvg::new().await.unwrap();
+        let (departure, destination) = try_join(
+            mvg.find_unambiguous_station_by_name("Waldfriedhof"),
+            mvg.find_unambiguous_station_by_name("Schwanthaler Höhe"),
+        )
+        .await
+        .unwrap();
+        let tomorrow_morning = (Local::now() + Duration::days(1))
+            .with_hour(9)
+            .unwrap()
+            .with_minute(0)
+            .unwrap()
+            .with_second(0)
+            .unwrap();
+
+        let connections = mvg
+            .get_connections(
+                &departure,
+                &destination,
+                tomorrow_morning.with_timezone(&Utc),
+            )
+            .await
+            .unwrap();
+        assert!(!connections.is_empty());
+        let first_connection = &connections[0];
+        assert!(tomorrow_morning <= first_connection.arrival_time());
     }
 }

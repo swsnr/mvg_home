@@ -7,9 +7,9 @@
 use std::{future::Future, path::PathBuf};
 
 use anyhow::{Context, Result};
+use chrono::{DateTime, Duration, Utc};
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
-use time::{Duration, OffsetDateTime};
 use tracing::{debug, event, info_span, instrument, Level};
 use tracing_futures::Instrument;
 
@@ -124,7 +124,7 @@ impl ConnectionsCache {
     /// time, or if half of the required time to walk to the start is already
     /// past.
     #[instrument(skip(self), fields(now=%now))]
-    pub fn evict_unreachable_connections(self, now: OffsetDateTime) -> Self {
+    pub fn evict_unreachable_connections(self, now: DateTime<Utc>) -> Self {
         let connections = self
             .connections
             .into_iter()

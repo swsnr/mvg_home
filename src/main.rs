@@ -11,10 +11,9 @@
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
+use chrono::{Duration, Local, Utc};
 use clap::Parser;
-use time::macros::format_description;
-use time::{Duration, OffsetDateTime, UtcOffset};
 use tracing::{debug, event, warn, Level};
 
 use tracing_futures::Instrument;
@@ -31,28 +30,22 @@ use mvg::*;
 struct ConnectionDisplay<'a> {
     connection: &'a Connection,
     walk_to_start: Duration,
-    local_offset: UtcOffset,
 }
 
 impl<'a> Display for ConnectionDisplay<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let departure = self
-            .connection
-            .departure_time()
-            .to_offset(self.local_offset);
-        let arrival = self.connection.arrival_time().to_offset(self.local_offset);
-        let start_in = departure - self.walk_to_start - OffsetDateTime::now_utc();
-
-        let hh_mm = format_description!("[hour]:[minute]");
+        let departure = self.connection.departure_time().with_timezone(&Local);
+        let arrival = self.connection.arrival_time().with_timezone(&Local);
+        let start_in = departure - self.walk_to_start - Local::now();
 
         let first_part = self.connection.departure();
 
         write!(
             f,
             "🏡 In {: >2} min, ⚐{} ⚑{}, 🚏{}",
-            ((start_in.whole_seconds() as f64) / 60.0).ceil(),
-            departure.time().format(hh_mm).unwrap(),
-            arrival.time().format(hh_mm).unwrap(),
+            ((start_in.num_seconds() as f64) / 60.0).ceil(),
+            departure.format("%H:%M"),
+            arrival.format("%H:%M"),
             self.connection.departure().from.name,
         )?;
         if self.connection.parts.len() == 1 {
@@ -91,12 +84,10 @@ impl<'a> Display for ConnectionDisplay<'a> {
 fn display_with_walk_time(
     connection: &'_ Connection,
     walk_to_start: Duration,
-    local_offset: UtcOffset,
 ) -> impl Display + '_ {
     ConnectionDisplay {
         connection,
         walk_to_start,
-        local_offset,
     }
 }
 
@@ -137,9 +128,7 @@ fn process_args(args: Arguments) -> Result<()> {
         None => Config::from_default_location()?,
     };
 
-    let local_offset = UtcOffset::current_local_offset()
-        .with_context(|| "Cannot determine current local timezone offset")?;
-    let now = OffsetDateTime::now_utc();
+    let now = Utc::now();
 
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -191,10 +180,7 @@ fn process_args(args: Arguments) -> Result<()> {
         .iter()
         .take(args.connections as usize)
     {
-        println!(
-            "{}",
-            display_with_walk_time(connection, *walk_to_start, local_offset)
-        );
+        println!("{}", display_with_walk_time(connection, *walk_to_start));
     }
 
     Ok(())
