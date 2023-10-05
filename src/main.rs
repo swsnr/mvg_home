@@ -12,7 +12,7 @@ use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 
 use anyhow::Result;
-use chrono::{Duration, Local, Utc};
+use chrono::{DateTime, Duration, Local, Utc};
 use clap::Parser;
 use tracing::{debug, event, warn, Level};
 
@@ -106,6 +106,8 @@ struct Arguments {
     /// Get fresh connections
     #[arg(long)]
     fresh: bool,
+    #[arg(short = 's', long, default_value_t = Local::now())]
+    start_time: DateTime<Local>,
 }
 
 impl Arguments {
@@ -131,7 +133,7 @@ fn process_args(args: Arguments) -> Result<()> {
         None => Config::from_default_location()?,
     };
 
-    let now = Utc::now();
+    let desired_start_time = args.start_time.with_timezone(&Utc);
 
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -141,7 +143,7 @@ fn process_args(args: Arguments) -> Result<()> {
     let cleared_cache = args
         .load_cache()
         .update_config(config)
-        .evict_unreachable_connections(now)
+        .evict_unreachable_connections(desired_start_time)
         .evict_too_few_connections(3);
     event!(
         Level::INFO,
@@ -156,7 +158,7 @@ fn process_args(args: Arguments) -> Result<()> {
         .block_on(
             cleared_cache
                 .refresh_empty::<anyhow::Error, _, _>(|desired| async {
-                    let desired_departure_time = now + desired.walk_to_start;
+                    let desired_departure_time = desired_start_time + desired.walk_to_start;
                     let start = mvg.find_unambiguous_station_by_name(&desired.start).await?;
                     let destination = mvg
                         .find_unambiguous_station_by_name(&desired.destination)
@@ -169,7 +171,7 @@ fn process_args(args: Arguments) -> Result<()> {
                 .in_current_span(),
         )?
         // Evict unreachable connections again, in case the MVG API returned nonsense
-        .evict_unreachable_connections(now)
+        .evict_unreachable_connections(desired_start_time)
         // And evict anything that starts with walking
         .evict_starts_with_pedestrian();
 
