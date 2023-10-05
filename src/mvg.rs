@@ -503,6 +503,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn connections_now() {
+        // Connections at the current time are supposed to have delay information,
+        // so this serves as a smoke test for parsing results with delay information.
+        let mvg = Mvg::new().await.unwrap();
+        let (departure, destination) = try_join(
+            mvg.find_unambiguous_station_by_name("Hauptbahnhof"),
+            mvg.find_unambiguous_station_by_name("Pasing"),
+        )
+        .await
+        .unwrap();
+
+        let connections = mvg
+            .get_connections(&departure, &destination, Utc::now())
+            .await
+            .unwrap();
+        assert!(
+            !connections.is_empty(),
+            "Expected some connections but got none"
+        );
+    }
+
+    #[tokio::test]
     async fn connections() {
         let mvg = Mvg::new().await.unwrap();
         let (departure, destination) = try_join(
