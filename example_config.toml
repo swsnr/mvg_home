@@ -5,6 +5,6 @@ walk_to_start = "10min"
 ignore_starting_with = ["U5"]
 
 [[connections]]
-start = "Karlsplatz (Stachus)"
-destination = "Ostbahnhof München"
+start = "Waldfriedhof"
+destination = "Schwanthaler Höhe"
 walk_to_start = "5min"
