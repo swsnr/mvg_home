@@ -102,7 +102,9 @@ impl ConnectionsCache {
                     let remaining_connections = connections
                         .into_iter()
                         // Remove everything that starts with a walk
-                        .filter(|c| c.departure().line.transport_type != TransportType::Pedestrian)
+                        .filter(|c| {
+                            c.departure().line_transport_type() != TransportType::Pedestrian
+                        })
                         .collect::<Vec<_>>();
                     debug!(
                         "Evicted {} unreachable connections for desired connection from {} to {}",
@@ -137,10 +139,12 @@ impl ConnectionsCache {
                         .into_iter()
                         // Connections must start strictly after the current time; we can get a train which already
                         // left the station.
-                        .filter(|c| now <= c.departure_time())
+                        .filter(|c| now <= c.planned_departure_time())
                         // We still must have at least half of time time to walk to connection start, or we'll definitely
                         // miss the train.
-                        .filter(|c| now <= (c.departure_time() - (desired.walk_to_start / 2)))
+                        .filter(|c| {
+                            now <= (c.planned_departure_time() - (desired.walk_to_start / 2))
+                        })
                         .collect::<Vec<_>>();
                     debug!(
                         "Evicted {} unreachable connections for desired connection from {} to {}",
@@ -227,12 +231,12 @@ impl ConnectionsCache {
                             || (!desired
                                 .ignore_starting_with
                                 .iter()
-                                .any(|l| &c.departure().line.label == l))
+                                .any(|l| c.departure().line_label() == l))
                     })
                     .map(|connection| (desired.walk_to_start, connection))
             })
             .collect::<Vec<_>>();
-        connections.sort_by_key(|(walk_to_start, c)| c.departure_time() - *walk_to_start);
+        connections.sort_by_key(|(walk_to_start, c)| c.planned_departure_time() - *walk_to_start);
         connections
     }
 }

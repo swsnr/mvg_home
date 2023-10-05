@@ -34,8 +34,11 @@ struct ConnectionDisplay<'a> {
 
 impl<'a> Display for ConnectionDisplay<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let departure = self.connection.departure_time().with_timezone(&Local);
-        let arrival = self.connection.arrival_time().with_timezone(&Local);
+        let departure = self
+            .connection
+            .planned_departure_time()
+            .with_timezone(&Local);
+        let arrival = self.connection.planned_arrival_time().with_timezone(&Local);
         let start_in = departure - self.walk_to_start - Local::now();
 
         let first_part = self.connection.departure();
@@ -46,10 +49,10 @@ impl<'a> Display for ConnectionDisplay<'a> {
             ((start_in.num_seconds() as f64) / 60.0).ceil(),
             departure.format("%H:%M"),
             arrival.format("%H:%M"),
-            self.connection.departure().from.name,
+            self.connection.departure().from().name(),
         )?;
         if self.connection.parts.len() == 1 {
-            match first_part.line.transport_type {
+            match first_part.line_transport_type() {
                 // There's only one part in the connection so if it's a footway
                 //  we'll just walk to the destination
                 TransportType::Pedestrian => write!(f, " 🏃"),
@@ -57,21 +60,21 @@ impl<'a> Display for ConnectionDisplay<'a> {
                     write!(
                         f,
                         " {}{}",
-                        first_part.line.transport_type.icon(),
-                        first_part.line.label
+                        first_part.line_transport_type().icon(),
+                        first_part.line_label()
                     )
                 }
             }
         } else if 2 <= self.connection.parts.len() {
-            match first_part.line.transport_type {
-                TransportType::Pedestrian => write!(f, " → 🏃{}", first_part.to.name),
+            match first_part.line_transport_type() {
+                TransportType::Pedestrian => write!(f, " → 🏃{}", first_part.to().name()),
                 _ => {
                     write!(
                         f,
                         " → {} {}{}",
-                        first_part.to.name,
-                        first_part.line.transport_type.icon(),
-                        first_part.line.label
+                        first_part.to().name(),
+                        first_part.line_transport_type().icon(),
+                        first_part.line_label()
                     )
                 }
             }

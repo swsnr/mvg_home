@@ -10,11 +10,21 @@ use reqwest::{Client, Proxy, Url};
 use serde::{Deserialize, Serialize};
 use tracing::{event, instrument, span, Instrument, Level};
 
+pub trait Place {
+    fn name(&self) -> &str;
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Station {
-    pub global_id: String,
-    pub name: String,
+    global_id: String,
+    name: String,
+}
+
+impl Place for Station {
+    fn name(&self) -> &str {
+        &self.name
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -69,23 +79,47 @@ impl TransportType {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionPartPlace {
-    pub name: String,
-    pub planned_departure: DateTime<FixedOffset>,
+    name: String,
+    planned_departure: DateTime<FixedOffset>,
+}
+
+impl Place for ConnectionPartPlace {
+    fn name(&self) -> &str {
+        &self.name
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Line {
-    pub label: String,
-    pub transport_type: TransportType,
+    label: String,
+    transport_type: TransportType,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionPart {
-    pub from: ConnectionPartPlace,
-    pub to: ConnectionPartPlace,
-    pub line: Line,
+    from: ConnectionPartPlace,
+    to: ConnectionPartPlace,
+    line: Line,
+}
+
+impl ConnectionPart {
+    pub fn from(&self) -> &ConnectionPartPlace {
+        &self.from
+    }
+
+    pub fn to(&self) -> &ConnectionPartPlace {
+        &self.to
+    }
+
+    pub fn line_transport_type(&self) -> TransportType {
+        self.line.transport_type
+    }
+
+    pub fn line_label(&self) -> &str {
+        &self.line.label
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -101,7 +135,7 @@ impl Connection {
             .expect("Connection without at least one part makes no sense at all!")
     }
 
-    pub fn departure_time(&self) -> DateTime<FixedOffset> {
+    pub fn planned_departure_time(&self) -> DateTime<FixedOffset> {
         self.departure().from.planned_departure
     }
 
@@ -111,7 +145,7 @@ impl Connection {
             .expect("Connection without at least one part makes no sense at all!")
     }
 
-    pub fn arrival_time(&self) -> DateTime<FixedOffset> {
+    pub fn planned_arrival_time(&self) -> DateTime<FixedOffset> {
         self.arrival().to.planned_departure
     }
 }
@@ -409,6 +443,6 @@ mod tests {
             .unwrap();
         assert!(!connections.is_empty());
         let first_connection = &connections[0];
-        assert!(tomorrow_morning <= first_connection.arrival_time());
+        assert!(tomorrow_morning <= first_connection.planned_arrival_time());
     }
 }
