@@ -444,5 +444,13 @@ mod tests {
         assert!(!connections.is_empty());
         let first_connection = &connections[0];
         assert!(tomorrow_morning <= first_connection.planned_arrival_time());
+        assert_eq!(
+            first_connection.planned_arrival_time().date_naive(),
+            tomorrow_morning.date_naive()
+        );
+        assert_eq!(
+            first_connection.planned_arrival_time().time().hour(),
+            tomorrow_morning.time().hour()
+        )
     }
 }
