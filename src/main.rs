@@ -11,6 +11,7 @@
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 
+use anstyle::{AnsiColor, Style};
 use anyhow::Result;
 use chrono::{DateTime, Duration, Local, Utc};
 use clap::Parser;
@@ -34,25 +35,41 @@ struct ConnectionDisplay<'a> {
 
 impl<'a> Display for ConnectionDisplay<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let departure = self
+        let departure_time = self
             .connection
-            .planned_departure_time()
+            .actual_departure_time()
             .with_timezone(&Local);
-        let arrival = self.connection.planned_arrival_time().with_timezone(&Local);
-        let start_in = departure - self.walk_to_start - Local::now();
+        let arrival = self.connection.actual_arrival_time().with_timezone(&Local);
+        let start_in = departure_time - self.walk_to_start - Local::now();
 
-        let first_part = self.connection.departure();
+        let departure_stop = self.connection.departure();
+        let departure_color = match self.connection.departure_delay() {
+            None => None,
+            Some(d) if d.is_zero() => Some(AnsiColor::Green.into()),
+            Some(_) => Some(AnsiColor::Red.into()),
+        };
+        let departure_style = Style::new().fg_color(departure_color);
+        let arrival_color = match self.connection.arrival_delay() {
+            None => None,
+            Some(d) if d.is_zero() => Some(AnsiColor::Green.into()),
+            Some(_) => Some(AnsiColor::Red.into()),
+        };
+        let arrival_style = Style::new().fg_color(arrival_color);
 
         write!(
             f,
-            "🏡 In {: >2} min, ⚐{} ⚑{}, 🚏{}",
+            "🏡 In {: >2} min, ⚐{}{}{} ⚑{}{}{}, 🚏{}",
             ((start_in.num_seconds() as f64) / 60.0).ceil(),
-            departure.format("%H:%M"),
+            departure_style.render(),
+            departure_time.format("%H:%M"),
+            departure_style.render_reset(),
+            arrival_style.render(),
             arrival.format("%H:%M"),
+            arrival_style.render_reset(),
             self.connection.departure().from().name(),
         )?;
         if self.connection.parts.len() == 1 {
-            match first_part.line_transport_type() {
+            match departure_stop.line_transport_type() {
                 // There's only one part in the connection so if it's a footway
                 //  we'll just walk to the destination
                 TransportType::Pedestrian => write!(f, " 🏃"),
@@ -60,21 +77,21 @@ impl<'a> Display for ConnectionDisplay<'a> {
                     write!(
                         f,
                         " {}{}",
-                        first_part.line_transport_type().icon(),
-                        first_part.line_label()
+                        departure_stop.line_transport_type().icon(),
+                        departure_stop.line_label()
                     )
                 }
             }
         } else if 2 <= self.connection.parts.len() {
-            match first_part.line_transport_type() {
-                TransportType::Pedestrian => write!(f, " → 🏃{}", first_part.to().name()),
+            match departure_stop.line_transport_type() {
+                TransportType::Pedestrian => write!(f, " → 🏃{}", departure_stop.to().name()),
                 _ => {
                     write!(
                         f,
                         " → {} {}{}",
-                        first_part.to().name(),
-                        first_part.line_transport_type().icon(),
-                        first_part.line_label()
+                        departure_stop.to().name(),
+                        departure_stop.line_transport_type().icon(),
+                        departure_stop.line_label()
                     )
                 }
             }

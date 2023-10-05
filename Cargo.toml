@@ -10,6 +10,7 @@ edition = "2021"
 publish = false
 
 [dependencies]
+anstyle = "1.0.4"
 toml = { version = "0.8.2", default-features = false, features=["parse"] }
 serde = { version = "1.0.188", default-features = false, features = ["derive"] }
 dirs = "5.0.1"

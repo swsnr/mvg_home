@@ -4,8 +4,10 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
+use std::ops::Deref;
+
 use anyhow::{anyhow, Context, Result};
-use chrono::{DateTime, FixedOffset, Utc};
+use chrono::{DateTime, Duration, FixedOffset, Utc};
 use reqwest::{Client, Proxy, Url};
 use serde::{Deserialize, Serialize};
 use tracing::{event, instrument, span, Instrument, Level};
@@ -78,14 +80,80 @@ impl TransportType {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ConnectionPartPlace {
+pub struct ConnectionPartStop {
     name: String,
     planned_departure: DateTime<FixedOffset>,
 }
 
-impl Place for ConnectionPartPlace {
+impl ConnectionPartStop {
+    fn planned_departure(&self) -> DateTime<FixedOffset> {
+        self.planned_departure
+    }
+}
+
+impl Place for ConnectionPartStop {
     fn name(&self) -> &str {
         &self.name
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionPartDepartingStop {
+    #[serde(flatten)]
+    stop: ConnectionPartStop,
+    /// The delay in minutes.
+    ///
+    /// If absent, real time information for this connection isn't known.
+    /// If zero departure is not delayed.
+    departure_delay_in_minutes: Option<i64>,
+}
+
+impl ConnectionPartDepartingStop {
+    /// The depature delay.
+    ///
+    /// If absent, real time information for this connection isn't known.
+    /// If zero departure is not delayed.
+    pub fn departure_delay(&self) -> Option<Duration> {
+        self.departure_delay_in_minutes.map(Duration::minutes)
+    }
+}
+
+impl Deref for ConnectionPartDepartingStop {
+    type Target = ConnectionPartStop;
+
+    fn deref(&self) -> &Self::Target {
+        &self.stop
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionPartArrivingStop {
+    #[serde(flatten)]
+    place: ConnectionPartStop,
+    /// The delay in minutes.
+    ///
+    /// If absent, real time information for this connection isn't known.
+    /// If zero arrival is not delayed.
+    arrival_delay_in_minutes: Option<i64>,
+}
+
+impl ConnectionPartArrivingStop {
+    /// The arrival delay.
+    ///
+    /// If absent, real time information for this connection isn't known.
+    /// If zero arrival is not delayed.
+    pub fn arrival_delay(&self) -> Option<Duration> {
+        self.arrival_delay_in_minutes.map(Duration::minutes)
+    }
+}
+
+impl Deref for ConnectionPartArrivingStop {
+    type Target = ConnectionPartStop;
+
+    fn deref(&self) -> &Self::Target {
+        &self.place
     }
 }
 
@@ -99,17 +167,17 @@ pub struct Line {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionPart {
-    from: ConnectionPartPlace,
-    to: ConnectionPartPlace,
+    from: ConnectionPartDepartingStop,
+    to: ConnectionPartArrivingStop,
     line: Line,
 }
 
 impl ConnectionPart {
-    pub fn from(&self) -> &ConnectionPartPlace {
+    pub fn from(&self) -> &ConnectionPartDepartingStop {
         &self.from
     }
 
-    pub fn to(&self) -> &ConnectionPartPlace {
+    pub fn to(&self) -> &ConnectionPartArrivingStop {
         &self.to
     }
 
@@ -136,7 +204,15 @@ impl Connection {
     }
 
     pub fn planned_departure_time(&self) -> DateTime<FixedOffset> {
-        self.departure().from.planned_departure
+        self.departure().from().planned_departure()
+    }
+
+    pub fn departure_delay(&self) -> Option<Duration> {
+        self.departure().from().departure_delay()
+    }
+
+    pub fn actual_departure_time(&self) -> DateTime<FixedOffset> {
+        self.planned_departure_time() + self.departure_delay().unwrap_or(Duration::zero())
     }
 
     pub fn arrival(&self) -> &ConnectionPart {
@@ -145,8 +221,16 @@ impl Connection {
             .expect("Connection without at least one part makes no sense at all!")
     }
 
+    pub fn arrival_delay(&self) -> Option<Duration> {
+        self.arrival().to().arrival_delay()
+    }
+
     pub fn planned_arrival_time(&self) -> DateTime<FixedOffset> {
-        self.arrival().to.planned_departure
+        self.arrival().to().planned_departure()
+    }
+
+    pub fn actual_arrival_time(&self) -> DateTime<FixedOffset> {
+        self.planned_arrival_time() + self.arrival_delay().unwrap_or(Duration::zero())
     }
 }
 
