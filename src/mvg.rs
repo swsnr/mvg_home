@@ -468,7 +468,7 @@ impl Mvg {
 #[cfg(test)]
 mod tests {
     use crate::mvg::*;
-    use chrono::{Duration, Local, Timelike};
+    use chrono::{Duration, Timelike};
     use futures::future::try_join;
     use pretty_assertions::assert_eq;
 
@@ -482,7 +482,8 @@ mod tests {
         assert_eq!(station.name, name);
         assert_eq!(
             &mvg.find_unambiguous_station_by_name(name).await.unwrap(),
-            station
+            station,
+            "Failed to find unambiguous station",
         );
     }
 
@@ -496,7 +497,8 @@ mod tests {
         assert_eq!(station.name, "Fuchswinkl, Abzw.");
         assert_eq!(
             &mvg.find_unambiguous_station_by_name(name).await.unwrap(),
-            station
+            station,
+            "Failed to find unambiguous station",
         );
     }
 
@@ -509,7 +511,10 @@ mod tests {
         )
         .await
         .unwrap();
-        let tomorrow_morning = (Local::now() + Duration::days(1))
+        // Use Munich time zone for these tests, to match times in the test again app & website results.
+        let tz = &chrono_tz::Europe::Berlin;
+        let tomorrow_morning = (Utc::now() + Duration::days(1))
+            .with_timezone(tz)
             .with_hour(9)
             .unwrap()
             .with_minute(0)
@@ -525,16 +530,31 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(!connections.is_empty());
+        assert!(
+            !connections.is_empty(),
+            "Expected some connections but got none"
+        );
         let first_connection = &connections[0];
-        assert!(tomorrow_morning <= first_connection.planned_arrival_time());
-        assert_eq!(
-            first_connection.planned_arrival_time().date_naive(),
-            tomorrow_morning.date_naive()
+        assert!(
+            tomorrow_morning <= first_connection.planned_arrival_time().with_timezone(tz),
+            "expected arrival to be after start time"
         );
         assert_eq!(
-            first_connection.planned_arrival_time().time().hour(),
-            tomorrow_morning.time().hour()
+            first_connection
+                .planned_arrival_time()
+                .with_timezone(tz)
+                .date_naive(),
+            tomorrow_morning.date_naive(),
+            "expected arrival date to be start time"
+        );
+        assert_eq!(
+            first_connection
+                .planned_arrival_time()
+                .with_timezone(tz)
+                .time()
+                .hour(),
+            tomorrow_morning.time().hour(),
+            "expected arrival hour to be within the same hour as start time"
         )
     }
 }
