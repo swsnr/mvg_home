@@ -123,6 +123,10 @@ struct Arguments {
     /// Get fresh connections
     #[arg(long)]
     fresh: bool,
+    /// Show contents of the cache and exit.
+    #[arg(long)]
+    dump_cache: bool,
+    /// Start at the given time instead of now.
     #[arg(short = 's', long, default_value_t = Local::now())]
     start_time: DateTime<Local>,
 }
@@ -157,22 +161,31 @@ fn process_args(args: Arguments) -> Result<()> {
         .build()
         .unwrap();
 
-    let cleared_cache = args
-        .load_cache()
-        .update_config(config)
-        .evict_unreachable_connections(desired_start_time)
-        .evict_too_few_connections(3);
+    let cache = args.load_cache().update_config(config);
     event!(
         Level::INFO,
-        "Found {} connections in cache",
-        cleared_cache.all_connections().len()
+        "Found {} connections in cache for current configuration",
+        cache.all_connections().len()
     );
 
-    // Create single client upfront; this resolves the HTTP proxy (if any) only once.
-    let mvg = rt.block_on(Mvg::new().in_current_span())?;
+    let new_cache = if args.dump_cache {
+        cache
+    } else {
+        let number_of_cached_connections = cache.all_connections().len();
+        let cleared_cache = cache
+            .evict_unreachable_connections(desired_start_time)
+            .evict_too_few_connections(3);
+        event!(
+            Level::INFO,
+            "{} connections remained in cache after eviction, evicted {} connections",
+            cleared_cache.all_connections().len(),
+            number_of_cached_connections - cleared_cache.all_connections().len()
+        );
 
-    let new_cache = rt
-        .block_on(
+        // Create single client upfront; this resolves the HTTP proxy (if any) only once.
+        let mvg = rt.block_on(Mvg::new().in_current_span())?;
+
+        rt.block_on(
             cleared_cache
                 .refresh_empty::<anyhow::Error, _, _>(|desired| async {
                     let desired_departure_time = desired_start_time + desired.walk_to_start;
@@ -190,7 +203,8 @@ fn process_args(args: Arguments) -> Result<()> {
         // Evict unreachable connections again, in case the MVG API returned nonsense
         .evict_unreachable_connections(desired_start_time)
         // And evict anything that starts with walking
-        .evict_starts_with_pedestrian();
+        .evict_starts_with_pedestrian()
+    };
 
     debug!("Saving cache");
     if let Err(error) = new_cache.save() {
