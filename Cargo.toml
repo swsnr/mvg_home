@@ -1,7 +1,7 @@
 [package]
 name = "home"
 description = "Commute homewards"
-version = "1.0.0"
+version = "3.0.0"
 license = "MPL-2.0"
 authors = ["Sebastian Wiesner <sebastian@swsnr.de>"]
 homepage = "https://github.com/swsnr/mvg_home"
