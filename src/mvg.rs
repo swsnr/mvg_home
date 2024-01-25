@@ -505,7 +505,7 @@ mod tests {
     #[tokio::test]
     async fn connections_now() {
         // Connections at the current time are supposed to have delay information,
-        // so this serves as a smoke test for parsing results with delay information.
+        // so let's use a major connection to test delay information
         let mvg = Mvg::new().await.unwrap();
         let (departure, destination) = try_join(
             mvg.find_unambiguous_station_by_name("München Hbf"),
@@ -518,6 +518,24 @@ mod tests {
             .get_connections(&departure, &destination, Utc::now())
             .await
             .unwrap();
+        for connection in &connections {
+            for part in &connection.parts {
+                // Naturally, walking doesn't have real time departure/arrival information :)
+                if part.line_transport_type() == TransportType::Pedestrian {
+                    continue;
+                }
+                assert!(
+                    part.from().departure_delay().is_some(),
+                    "No departure delay in connection part: {:?}",
+                    part
+                );
+                assert!(
+                    part.to().arrival_delay().is_some(),
+                    "No arrival delay in connection part: {:?}",
+                    part
+                );
+            }
+        }
         assert!(
             !connections.is_empty(),
             "Expected some connections but got none"
