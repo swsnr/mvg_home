@@ -508,7 +508,7 @@ mod tests {
         // so this serves as a smoke test for parsing results with delay information.
         let mvg = Mvg::new().await.unwrap();
         let (departure, destination) = try_join(
-            mvg.find_unambiguous_station_by_name("Hauptbahnhof"),
+            mvg.find_unambiguous_station_by_name("München Hbf"),
             mvg.find_unambiguous_station_by_name("Pasing"),
         )
         .await
