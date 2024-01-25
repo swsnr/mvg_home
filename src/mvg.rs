@@ -199,7 +199,7 @@ pub struct Connection {
 impl Connection {
     pub fn departure(&self) -> &ConnectionPart {
         self.parts
-            .get(0)
+            .first()
             .expect("Connection without at least one part makes no sense at all!")
     }
 
